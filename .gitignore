@@ -1,0 +1,55 @@
+# Server-specific planning docs (contains cluster specs)
+.github/prompts/plan-tavse.prompt.md
+
+# ── Python ────────────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+*.egg-info/
+dist/
+build/
+*.egg
+
+# ── Virtual environments ──────────────────────────────────────
+.venv/
+venv/
+env/
+
+# ── IDE / Editor ──────────────────────────────────────────────
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# ── Data & Outputs (live on scratch, never in repo) ──────────
+*.lmdb/
+*.mdb
+*.wav
+*.mp3
+*.mp4
+data/
+processed/
+staging/
+noise/
+
+# ── Training artifacts ────────────────────────────────────────
+checkpoints/
+logs/
+runs/
+*.pt
+*.pth
+*.ckpt
+tensorboard/
+
+# ── Jupyter ───────────────────────────────────────────────────
+.ipynb_checkpoints/
+
+# ── OS ────────────────────────────────────────────────────────
+.DS_Store
+Thumbs.db
+
+# ── Misc ──────────────────────────────────────────────────────
+*.log
+*.bak

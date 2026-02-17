@@ -1,0 +1,63 @@
+# ─────────────────────────────────────────────────────────────
+# TAVSE Config: Audio-Only Baseline (Model A)
+# ─────────────────────────────────────────────────────────────
+experiment_name: audio_only
+
+model:
+  active_modalities: ["audio"]
+  audio_channels: [1, 32, 64, 128, 256, 512]
+  audio_bottleneck_dim: 512
+  fusion_dim: 512
+  fusion_heads: 8
+  fusion_dropout: 0.1
+  fusion_alpha_init: 0.1
+
+audio:
+  sample_rate: 16000
+  n_fft: 512
+  win_length: 400
+  hop_length: 160
+  segment_seconds: 2.5
+  segment_samples: 40000
+
+visual:
+  fps: 28
+  roi_size: 96
+  n_frames_per_segment: 70
+
+data:
+  scratch_base: /mnt/scratch/users/40741008/tavse
+  rgb_lmdb_path: /mnt/scratch/users/40741008/tavse/processed/rgb_mouth.lmdb
+  thermal_lmdb_path: /mnt/scratch/users/40741008/tavse/processed/thermal_mouth.lmdb
+  audio_dir: /mnt/scratch/users/40741008/tavse/processed/audio_16k
+  noise_dir: /mnt/scratch/users/40741008/tavse/processed/noise
+  metadata_dir: /mnt/scratch/users/40741008/tavse/processed/metadata
+  train_manifest: /mnt/scratch/users/40741008/tavse/processed/metadata/train_manifest.csv
+  val_manifest: /mnt/scratch/users/40741008/tavse/processed/metadata/val_manifest.csv
+  test_manifest: /mnt/scratch/users/40741008/tavse/processed/metadata/test_manifest.csv
+  train_snr_range: [-5.0, 0.0, 5.0, 10.0, 15.0]
+  test_snr_levels: [-5.0, 0.0, 5.0, 10.0]
+
+training:
+  batch_size: 16
+  num_workers: 4
+  pin_memory: true
+  persistent_workers: true
+  prefetch_factor: 2
+  optimizer: adamw
+  lr: 3.0e-4
+  weight_decay: 0.01
+  betas: [0.9, 0.999]
+  warmup_steps: 2000
+  max_epochs: 100
+  loss_si_snr_weight: 1.0
+  loss_mag_weight: 0.1
+  patience: 10
+  use_amp: true
+  grad_accum_steps: 1
+  checkpoint_dir: /mnt/scratch/users/40741008/tavse/checkpoints
+  keep_top_k: 3
+  log_dir: /mnt/scratch/users/40741008/tavse/logs
+  log_interval: 50
+  val_interval: 1
+  seed: 42
