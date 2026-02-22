@@ -27,8 +27,12 @@
 #SBATCH --error=logs/eval_%j.err
 
 # ── Resolve project directory ─────────────────────────────────
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-PROJECT_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
+if [ -n "${SLURM_SUBMIT_DIR:-}" ]; then
+    PROJECT_DIR="${SLURM_SUBMIT_DIR}"
+else
+    SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+    PROJECT_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
+fi
 
 # ── Load .env ─────────────────────────────────────────────────
 if [ -f "${PROJECT_DIR}/.env" ]; then
@@ -73,10 +77,9 @@ echo "====================="
 
 cd "${PROJECT_DIR}"
 
-# Activate conda (handle non-interactive SLURM batch mode)
-if ! command -v conda &>/dev/null && [ -n "${CONDA_EXE:-}" ]; then
-    source "${CONDA_EXE%/*}/../etc/profile.d/conda.sh"
-fi
+# Activate conda (non-interactive SLURM shells need explicit init)
+CONDA_SH="${CONDA_EXE:?Set CONDA_EXE in .env (run: echo \$CONDA_EXE)}"
+source "${CONDA_SH%/*}/../etc/profile.d/conda.sh"
 conda activate "${TAVSE_CONDA_ENV:-tavse}"
 
 echo ""

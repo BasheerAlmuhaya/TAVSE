@@ -21,9 +21,15 @@
 #SBATCH --output=logs/ingest_%j.out
 #SBATCH --error=logs/ingest_%j.err
 
-# ── Resolve project directory (robust to symlinks) ────────────
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-PROJECT_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
+# ── Resolve project directory ─────────────────────────────────
+# SLURM copies scripts to /var/spool/slurmd/, so BASH_SOURCE won't work.
+# Use SLURM_SUBMIT_DIR (set to cwd where sbatch was called) when available.
+if [ -n "${SLURM_SUBMIT_DIR:-}" ]; then
+    PROJECT_DIR="${SLURM_SUBMIT_DIR}"
+else
+    SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+    PROJECT_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
+fi
 
 # ── Load .env (user-specific paths) ──────────────────────────
 if [ -f "${PROJECT_DIR}/.env" ]; then
@@ -58,10 +64,9 @@ echo "====================="
 # ── Load environment ──────────────────────────────────────────
 cd "${PROJECT_DIR}"
 
-# Activate conda (handle non-interactive SLURM batch mode)
-if ! command -v conda &>/dev/null && [ -n "${CONDA_EXE:-}" ]; then
-    source "${CONDA_EXE%/*}/../etc/profile.d/conda.sh"
-fi
+# Activate conda (non-interactive SLURM shells need explicit init)
+CONDA_SH="${CONDA_EXE:?Set CONDA_EXE in .env (run: echo \$CONDA_EXE)}"
+source "${CONDA_SH%/*}/../etc/profile.d/conda.sh"
 conda activate "${TAVSE_CONDA_ENV:-tavse}"
 
 # ── Parse arguments ───────────────────────────────────────────
