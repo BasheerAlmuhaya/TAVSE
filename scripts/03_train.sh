@@ -16,8 +16,19 @@
 #   sbatch scripts/03_train.sh audio_rgb --resume
 #
 # Multi-GPU (2 GPUs on one node):
-#   SLURM_GPU_GRES=gpu:2 sbatch scripts/03_train.sh audio_rgb_thermal
+#   sbatch --gres=gpu:2 scripts/03_train.sh audio_rgb_thermal
 # ─────────────────────────────────────────────────────────────
+#
+# ── SLURM directives (MUST appear before any executable line) ─
+# Override from command line:  sbatch --partition=gpu --gres=gpu:2 scripts/03_train.sh audio_rgb_thermal
+#SBATCH --job-name=tavse-train
+#SBATCH --partition=gpu
+#SBATCH --gres=gpu:1
+#SBATCH --time=48:00:00
+#SBATCH --mem=64G
+#SBATCH --cpus-per-task=8
+#SBATCH --output=logs/train_%j.out
+#SBATCH --error=logs/train_%j.err
 
 # ── Resolve project directory ─────────────────────────────────
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -29,16 +40,6 @@ if [ -f "${PROJECT_DIR}/.env" ]; then
 else
     echo "ERROR: ${PROJECT_DIR}/.env not found. Copy .env.example to .env."; exit 1
 fi
-
-# ── SLURM directives ─────────────────────────────────────────
-#SBATCH --job-name=tavse-train
-#SBATCH --partition=${SLURM_GPU_PARTITION:-gpu}
-#SBATCH --gres=${SLURM_GPU_GRES:-gpu:1}
-#SBATCH --time=48:00:00
-#SBATCH --mem=64G
-#SBATCH --cpus-per-task=8
-#SBATCH --output=${TAVSE_DATA_ROOT}/logs/train_%j.out
-#SBATCH --error=${TAVSE_DATA_ROOT}/logs/train_%j.err
 
 set -euo pipefail
 
@@ -82,7 +83,12 @@ nvidia-smi --query-gpu=name,memory.total,memory.free,compute_cap --format=csv,no
 echo "================"
 
 cd "${PROJECT_DIR}"
-source activate tavse 2>/dev/null || conda activate tavse 2>/dev/null || true
+
+# Activate conda (handle non-interactive SLURM batch mode)
+if ! command -v conda &>/dev/null && [ -n "${CONDA_EXE:-}" ]; then
+    source "${CONDA_EXE%/*}/../etc/profile.d/conda.sh"
+fi
+conda activate "${TAVSE_CONDA_ENV:-tavse}"
 
 echo ""
 echo "=================================================="

@@ -8,6 +8,10 @@
 # Server-specific planning docs (contains cluster specs)
 .github/prompts/plan-tavse.prompt.md
 
+# ── SLURM logs (written by sbatch) ───────────────────────────
+logs/
+slurm-*.out
+
 # ── Python ────────────────────────────────────────────────────
 __pycache__/
 *.py[cod]

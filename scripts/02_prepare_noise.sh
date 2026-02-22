@@ -8,6 +8,16 @@
 # Usage:
 #   sbatch scripts/02_prepare_noise.sh
 # ─────────────────────────────────────────────────────────────
+#
+# ── SLURM directives (MUST appear before any executable line) ─
+# Override from command line:  sbatch --partition=short scripts/02_prepare_noise.sh
+#SBATCH --job-name=tavse-noise
+#SBATCH --partition=nodes
+#SBATCH --time=01:00:00
+#SBATCH --mem=8G
+#SBATCH --cpus-per-task=4
+#SBATCH --output=logs/noise_%j.out
+#SBATCH --error=logs/noise_%j.err
 
 # ── Resolve project directory ─────────────────────────────────
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -19,15 +29,6 @@ if [ -f "${PROJECT_DIR}/.env" ]; then
 else
     echo "ERROR: ${PROJECT_DIR}/.env not found. Copy .env.example to .env."; exit 1
 fi
-
-# ── SLURM directives ─────────────────────────────────────────
-#SBATCH --job-name=tavse-noise
-#SBATCH --partition=${SLURM_CPU_PARTITION:-compute}
-#SBATCH --time=01:00:00
-#SBATCH --mem=8G
-#SBATCH --cpus-per-task=4
-#SBATCH --output=${TAVSE_DATA_ROOT}/logs/noise_%j.out
-#SBATCH --error=${TAVSE_DATA_ROOT}/logs/noise_%j.err
 
 set -euo pipefail
 
@@ -44,7 +45,12 @@ echo "Data root: $(du -sh ${SCRATCH_BASE} 2>/dev/null | cut -f1)"
 echo "====================="
 
 cd "${PROJECT_DIR}"
-source activate tavse 2>/dev/null || conda activate tavse 2>/dev/null || true
+
+# Activate conda (handle non-interactive SLURM batch mode)
+if ! command -v conda &>/dev/null && [ -n "${CONDA_EXE:-}" ]; then
+    source "${CONDA_EXE%/*}/../etc/profile.d/conda.sh"
+fi
+conda activate "${TAVSE_CONDA_ENV:-tavse}"
 
 echo ""
 echo "=================================================="

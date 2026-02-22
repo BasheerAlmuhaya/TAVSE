@@ -10,6 +10,16 @@
 #   sbatch scripts/01_ingest_dataset.sh 1 50         # Subjects 1-50
 #   sbatch scripts/01_ingest_dataset.sh --resume     # Resume interrupted
 # ─────────────────────────────────────────────────────────────
+#
+# ── SLURM directives (MUST appear before any executable line) ─
+# Override from command line:  sbatch --partition=long --time=48:00:00 scripts/01_ingest_dataset.sh
+#SBATCH --job-name=tavse-ingest
+#SBATCH --partition=nodes
+#SBATCH --time=24:00:00
+#SBATCH --mem=32G
+#SBATCH --cpus-per-task=8
+#SBATCH --output=logs/ingest_%j.out
+#SBATCH --error=logs/ingest_%j.err
 
 # ── Resolve project directory (robust to symlinks) ────────────
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -25,15 +35,6 @@ else
     echo "Copy .env.example to .env and configure your paths."
     exit 1
 fi
-
-# ── SLURM directives (submitted via sbatch, ignored if run directly) ───
-#SBATCH --job-name=tavse-ingest
-#SBATCH --partition=${SLURM_CPU_PARTITION:-compute}
-#SBATCH --time=24:00:00
-#SBATCH --mem=32G
-#SBATCH --cpus-per-task=8
-#SBATCH --output=${TAVSE_DATA_ROOT}/logs/ingest_%j.out
-#SBATCH --error=${TAVSE_DATA_ROOT}/logs/ingest_%j.err
 
 set -euo pipefail
 
@@ -57,8 +58,11 @@ echo "====================="
 # ── Load environment ──────────────────────────────────────────
 cd "${PROJECT_DIR}"
 
-# Activate conda environment (adjust name as needed)
-source activate tavse 2>/dev/null || conda activate tavse 2>/dev/null || true
+# Activate conda (handle non-interactive SLURM batch mode)
+if ! command -v conda &>/dev/null && [ -n "${CONDA_EXE:-}" ]; then
+    source "${CONDA_EXE%/*}/../etc/profile.d/conda.sh"
+fi
+conda activate "${TAVSE_CONDA_ENV:-tavse}"
 
 # ── Parse arguments ───────────────────────────────────────────
 START_SUB=${1:-1}

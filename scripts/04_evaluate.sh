@@ -14,6 +14,17 @@
 # With comparison:
 #   sbatch scripts/04_evaluate.sh audio_thermal audio_rgb
 # ─────────────────────────────────────────────────────────────
+#
+# ── SLURM directives (MUST appear before any executable line) ─
+# Override from command line:  sbatch --partition=gpu scripts/04_evaluate.sh audio_rgb
+#SBATCH --job-name=tavse-eval
+#SBATCH --partition=gpu
+#SBATCH --gres=gpu:1
+#SBATCH --time=04:00:00
+#SBATCH --mem=32G
+#SBATCH --cpus-per-task=8
+#SBATCH --output=logs/eval_%j.out
+#SBATCH --error=logs/eval_%j.err
 
 # ── Resolve project directory ─────────────────────────────────
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -25,16 +36,6 @@ if [ -f "${PROJECT_DIR}/.env" ]; then
 else
     echo "ERROR: ${PROJECT_DIR}/.env not found. Copy .env.example to .env."; exit 1
 fi
-
-# ── SLURM directives ─────────────────────────────────────────
-#SBATCH --job-name=tavse-eval
-#SBATCH --partition=${SLURM_GPU_PARTITION:-gpu}
-#SBATCH --gres=${SLURM_GPU_GRES:-gpu:1}
-#SBATCH --time=04:00:00
-#SBATCH --mem=32G
-#SBATCH --cpus-per-task=8
-#SBATCH --output=${TAVSE_DATA_ROOT}/logs/eval_%j.out
-#SBATCH --error=${TAVSE_DATA_ROOT}/logs/eval_%j.err
 
 set -euo pipefail
 
@@ -71,7 +72,12 @@ echo "Data root: $(du -sh ${SCRATCH_BASE} 2>/dev/null | cut -f1)"
 echo "====================="
 
 cd "${PROJECT_DIR}"
-source activate tavse 2>/dev/null || conda activate tavse 2>/dev/null || true
+
+# Activate conda (handle non-interactive SLURM batch mode)
+if ! command -v conda &>/dev/null && [ -n "${CONDA_EXE:-}" ]; then
+    source "${CONDA_EXE%/*}/../etc/profile.d/conda.sh"
+fi
+conda activate "${TAVSE_CONDA_ENV:-tavse}"
 
 echo ""
 echo "=================================================="
