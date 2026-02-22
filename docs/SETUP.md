@@ -65,16 +65,20 @@ pip install -r requirements.txt
 
 ### 2. Configure HuggingFace
 
+The ISSAI/SpeakingFaces dataset is gated and requires authentication:
+
 ```bash
-# Login to HuggingFace (needed for ISSAI/SpeakingFaces access)
+# Login to HuggingFace (one-time setup)
 huggingface-cli login
 
-# CRITICAL: Redirect HF cache to your data root (not home!)
-# This is already configured in .env via HF_HOME.
-# If your shell doesn't auto-source .env, add this to ~/.bashrc:
-echo "export HF_HOME=\$TAVSE_DATA_ROOT/.hf_cache" >> ~/.bashrc
-source ~/.bashrc
+# Alternatively, set HF_TOKEN in .env:
+# Get your token at https://huggingface.co/settings/tokens
+# Then add to .env:  HF_TOKEN=hf_...
 ```
+
+> **Important:** Also accept the dataset terms at https://huggingface.co/datasets/ISSAI/SpeakingFaces
+>
+> The HF cache is automatically redirected to `$TAVSE_DATA_ROOT/.hf_cache` via `.env`, keeping it off your home directory.
 
 ### 3. Set PYTHONPATH
 
@@ -160,37 +164,53 @@ du -sh ~
 
 ### 3. Ingest SpeakingFaces Dataset
 
-The ingestion pipeline downloads each subject from HuggingFace, extracts 96×96 mouth ROIs using MediaPipe face detection, builds LMDB databases, resamples audio to 16kHz, and generates train/val/test manifests.
+The ingestion pipeline extracts 96×96 mouth ROIs using MediaPipe face detection, builds LMDB databases, resamples audio to 16kHz, and generates train/val/test manifests.
 
-**Option A: Full ingestion as SLURM job** (~24 hours for all 142 subjects)
+> **Two-step process:** HPC compute nodes typically have **no internet access**.
+> You must download data on the login node first, then process on compute nodes.
+
+**Step A: Download from HuggingFace** (run on login node, has internet)
 
 ```bash
 cd "$TAVSE_PROJECT_DIR"
+
+# Download all 142 subjects (~900 GB total, ~6.4 GB per subject)
+bash scripts/00_download_data.sh
+
+# Or download a smaller subset for testing
+bash scripts/00_download_data.sh 1 5
+
+# Check download status
+bash scripts/00_download_data.sh --check
+```
+
+The download script:
+- Verifies internet access and HuggingFace authentication
+- Downloads `sub_{id}_ia.zip` to `$TAVSE_DATA_ROOT/staging/`
+- Skips already-downloaded subjects (safe to re-run)
+- Guides you through HF login if needed
+
+**Step B: Process on compute node** (submit via sbatch)
+
+```bash
+# Process all downloaded subjects
 sbatch scripts/01_ingest_dataset.sh
-```
 
-**Option B: Partial ingestion** (for testing)
-
-```bash
-# Process only subjects 1-5
+# Process a subset
 sbatch scripts/01_ingest_dataset.sh 1 5
-```
 
-**Option C: Resume interrupted ingestion**
-
-```bash
+# Resume interrupted processing
 sbatch scripts/01_ingest_dataset.sh --resume
 ```
 
-**What it does:**
-1. Downloads `sub_{id}_ia.zip` to `$TAVSE_DATA_ROOT/staging/` (~6.4 GB per subject)
-2. Opens zip in streaming mode (no full extraction)
-3. Detects face landmarks on RGB frames → computes mouth bounding box
-4. Crops 96×96 mouth ROIs for both RGB and thermal frames
-5. Writes ROIs to LMDB (JPEG for RGB, PNG for thermal)
-6. Resamples audio from 44.1kHz → 16kHz
-7. Deletes the zip after processing
-8. Saves progress to `ingest_state.json` for resume support
+**What processing does:**
+1. Opens each `sub_{id}_ia.zip` from `$TAVSE_DATA_ROOT/staging/`
+2. Detects face landmarks on RGB frames → computes mouth bounding box
+3. Crops 96×96 mouth ROIs for both RGB and thermal frames
+4. Writes ROIs to LMDB (JPEG for RGB, PNG for thermal)
+5. Resamples audio from 44.1kHz → 16kHz
+6. Deletes the zip after processing to reclaim space
+7. Saves progress to `ingest_state.json` for resume support
 
 **Speaker split:**
 - Train: subjects 1-100 (100 speakers)
@@ -249,6 +269,20 @@ ls "$TAVSE_DATA_ROOT/processed/noise/"*.wav | wc -l
 ---
 
 ## Troubleshooting
+
+### SSL handshake timeout / download fails on compute node
+Compute nodes on most HPC clusters have no outbound internet access. Always run downloads on the **login node**:
+```bash
+bash scripts/00_download_data.sh    # on login node
+sbatch scripts/01_ingest_dataset.sh # processing happens on compute node
+```
+
+### HuggingFace authentication error
+```bash
+huggingface-cli login
+# Or set HF_TOKEN in .env
+```
+Also ensure you've accepted the dataset terms at https://huggingface.co/datasets/ISSAI/SpeakingFaces.
 
 ### Home quota exceeded
 ```bash

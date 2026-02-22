@@ -121,9 +121,11 @@ For debugging or development, you can run training interactively:
 srun --partition=gpu --gres=gpu:1 --mem=64G --cpus-per-task=8 --time=02:00:00 --pty bash
 
 # Activate environment and load project settings
+source /path/to/TAVSE/.env
+CONDA_SH="${CONDA_EXE}"
+source "${CONDA_SH%/*}/../etc/profile.d/conda.sh"
 conda activate tavse
-cd /path/to/TAVSE
-source .env   # loads TAVSE_DATA_ROOT, HF_HOME, PYTHONPATH, etc.
+cd "$TAVSE_PROJECT_DIR"
 
 # Run training
 python -m src.training.train --config configs/audio_only.yaml

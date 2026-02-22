@@ -37,7 +37,7 @@ TAVSE/
 │   ├── training/       # Training loop, evaluation, loss functions
 │   └── utils/          # Config management, evaluation metrics
 ├── configs/            # YAML configs for each experiment
-├── scripts/            # SLURM job scripts (ingest, train, evaluate)
+├── scripts/            # SLURM job scripts (download, ingest, train, evaluate)
 ├── docs/               # Setup and training documentation
 └── requirements.txt    # Python dependencies
 ```
@@ -52,19 +52,26 @@ pip install -r requirements.txt
 
 # 2. Configure local paths (REQUIRED — sets data root, HF cache, etc.)
 cp .env.example .env
-# Edit .env — set TAVSE_DATA_ROOT, TAVSE_PROJECT_DIR, etc.
+# Edit .env — set TAVSE_DATA_ROOT, TAVSE_PROJECT_DIR, CONDA_EXE, etc.
 
-# 3. Prepare data (see docs/SETUP.md for full details)
+# 3. Login to HuggingFace (dataset is gated)
+huggingface-cli login
+
+# 4. Download data on LOGIN node (compute nodes have no internet)
+bash scripts/00_download_data.sh          # all 142 subjects
+bash scripts/00_download_data.sh 1 5      # or a small subset for testing
+
+# 5. Process data on COMPUTE node via SLURM
 sbatch scripts/01_ingest_dataset.sh
 sbatch scripts/02_prepare_noise.sh
 
-# 4. Train models
+# 6. Train models
 sbatch scripts/03_train.sh audio_only
 sbatch scripts/03_train.sh audio_rgb
 sbatch scripts/03_train.sh audio_thermal
 sbatch scripts/03_train.sh audio_rgb_thermal
 
-# 5. Evaluate
+# 7. Evaluate
 sbatch scripts/04_evaluate.sh audio_only
 sbatch scripts/04_evaluate.sh audio_rgb_thermal
 ```

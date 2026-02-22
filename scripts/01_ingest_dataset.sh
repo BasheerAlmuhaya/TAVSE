@@ -1,9 +1,13 @@
 #!/bin/bash
 # ─────────────────────────────────────────────────────────────
-# TAVSE: Dataset Ingestion Pipeline
+# TAVSE: Dataset Ingestion Pipeline (Step 2: Process)
 #
-# Downloads SpeakingFaces subjects from HuggingFace, extracts
-# mouth ROIs, builds LMDB databases, and generates manifests.
+# Extracts mouth ROIs, builds LMDB databases, and generates
+# manifests from pre-downloaded SpeakingFaces zips.
+#
+# NOTE: Compute nodes have no internet access. Download first:
+#   bash scripts/00_download_data.sh          # on LOGIN node
+#   sbatch scripts/01_ingest_dataset.sh       # then submit processing
 #
 # Usage:
 #   sbatch scripts/01_ingest_dataset.sh              # All 142 subjects
@@ -91,11 +95,12 @@ echo "  Output: ${SCRATCH_BASE}/processed/"
 echo "=================================================="
 echo ""
 
-# ── Run ingestion ─────────────────────────────────────────────
+# ── Run ingestion (--skip-download because compute nodes have no internet) ──
 python -m src.data.ingest_pipeline \
     --subjects ${START_SUB} ${END_SUB} \
     --rgb-map-size 15000000000 \
     --thr-map-size 8000000000 \
+    --skip-download \
     ${RESUME_FLAG}
 
 # ── Final storage check ──────────────────────────────────────
