@@ -1,38 +1,49 @@
 #!/bin/bash
-#SBATCH --job-name=tavse-noise
-#SBATCH --partition=compute
-#SBATCH --time=01:00:00
-#SBATCH --mem=8G
-#SBATCH --cpus-per-task=4
-#SBATCH --output=/mnt/scratch/users/40741008/tavse/logs/noise_%j.out
-#SBATCH --error=/mnt/scratch/users/40741008/tavse/logs/noise_%j.err
-
 # ─────────────────────────────────────────────────────────────
 # TAVSE: Noise Corpus Preparation
 #
 # Downloads the DEMAND noise corpus, resamples to 16kHz, and
-# stores on scratch for on-the-fly noise mixing during training.
+# stores for on-the-fly noise mixing during training.
 #
 # Usage:
 #   sbatch scripts/02_prepare_noise.sh
 # ─────────────────────────────────────────────────────────────
 
+# ── Resolve project directory ─────────────────────────────────
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
+
+# ── Load .env ─────────────────────────────────────────────────
+if [ -f "${PROJECT_DIR}/.env" ]; then
+    set -a; source "${PROJECT_DIR}/.env"; set +a
+else
+    echo "ERROR: ${PROJECT_DIR}/.env not found. Copy .env.example to .env."; exit 1
+fi
+
+# ── SLURM directives ─────────────────────────────────────────
+#SBATCH --job-name=tavse-noise
+#SBATCH --partition=${SLURM_CPU_PARTITION:-compute}
+#SBATCH --time=01:00:00
+#SBATCH --mem=8G
+#SBATCH --cpus-per-task=4
+#SBATCH --output=${TAVSE_DATA_ROOT}/logs/noise_%j.out
+#SBATCH --error=${TAVSE_DATA_ROOT}/logs/noise_%j.err
+
 set -euo pipefail
 
-SCRATCH_BASE=/mnt/scratch/users/40741008/tavse
-NOISE_DIR=${SCRATCH_BASE}/processed/noise
-STAGING_DIR=${SCRATCH_BASE}/staging
-PROJECT_DIR=~/my_projects/AVTSE/TAVSE
+SCRATCH_BASE="${TAVSE_DATA_ROOT:?Set TAVSE_DATA_ROOT in .env}"
+NOISE_DIR="${SCRATCH_BASE}/processed/noise"
+STAGING_DIR="${SCRATCH_BASE}/staging"
 
-mkdir -p ${NOISE_DIR} ${STAGING_DIR}
+mkdir -p "${NOISE_DIR}" "${STAGING_DIR}"
 
 # ── Storage check ─────────────────────────────────────────────
 echo "=== Storage Check ==="
-echo "Home: $(du -sh ~ 2>/dev/null | cut -f1) / 50 GB quota"
-echo "Scratch: $(du -sh $SCRATCH_BASE 2>/dev/null | cut -f1) (no quota)"
+echo "Home: $(du -sh ~ 2>/dev/null | cut -f1)"
+echo "Data root: $(du -sh ${SCRATCH_BASE} 2>/dev/null | cut -f1)"
 echo "====================="
 
-cd ${PROJECT_DIR}
+cd "${PROJECT_DIR}"
 source activate tavse 2>/dev/null || conda activate tavse 2>/dev/null || true
 
 echo ""

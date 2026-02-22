@@ -26,15 +26,15 @@ visual:
   n_frames_per_segment: 70
 
 data:
-  scratch_base: /mnt/scratch/users/40741008/tavse
-  rgb_lmdb_path: /mnt/scratch/users/40741008/tavse/processed/rgb_mouth.lmdb
-  thermal_lmdb_path: /mnt/scratch/users/40741008/tavse/processed/thermal_mouth.lmdb
-  audio_dir: /mnt/scratch/users/40741008/tavse/processed/audio_16k
-  noise_dir: /mnt/scratch/users/40741008/tavse/processed/noise
-  metadata_dir: /mnt/scratch/users/40741008/tavse/processed/metadata
-  train_manifest: /mnt/scratch/users/40741008/tavse/processed/metadata/train_manifest.csv
-  val_manifest: /mnt/scratch/users/40741008/tavse/processed/metadata/val_manifest.csv
-  test_manifest: /mnt/scratch/users/40741008/tavse/processed/metadata/test_manifest.csv
+  scratch_base: ${TAVSE_DATA_ROOT}
+  rgb_lmdb_path: ${TAVSE_DATA_ROOT}/processed/rgb_mouth.lmdb
+  thermal_lmdb_path: ${TAVSE_DATA_ROOT}/processed/thermal_mouth.lmdb
+  audio_dir: ${TAVSE_DATA_ROOT}/processed/audio_16k
+  noise_dir: ${TAVSE_DATA_ROOT}/processed/noise
+  metadata_dir: ${TAVSE_DATA_ROOT}/processed/metadata
+  train_manifest: ${TAVSE_DATA_ROOT}/processed/metadata/train_manifest.csv
+  val_manifest: ${TAVSE_DATA_ROOT}/processed/metadata/val_manifest.csv
+  test_manifest: ${TAVSE_DATA_ROOT}/processed/metadata/test_manifest.csv
   train_snr_range: [-5.0, 0.0, 5.0, 10.0, 15.0]
   test_snr_levels: [-5.0, 0.0, 5.0, 10.0]
 
@@ -55,9 +55,9 @@ training:
   patience: 10
   use_amp: true
   grad_accum_steps: 1
-  checkpoint_dir: /mnt/scratch/users/40741008/tavse/checkpoints
+  checkpoint_dir: ${TAVSE_DATA_ROOT}/checkpoints
   keep_top_k: 3
-  log_dir: /mnt/scratch/users/40741008/tavse/logs
+  log_dir: ${TAVSE_DATA_ROOT}/logs
   log_interval: 50
   val_interval: 1
   seed: 42

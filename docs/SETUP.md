@@ -1,15 +1,16 @@
 # TAVSE Setup Guide
 
-This guide covers environment setup, data preparation, and project configuration for the TAVSE (Thermal Audio-Visual Speech Enhancement) project on the ENUCC cluster.
+This guide covers environment setup, data preparation, and project configuration for the TAVSE (Thermal Audio-Visual Speech Enhancement) project. It is written for HPC clusters with SLURM but also works on local machines.
 
 ## Table of Contents
 
 - [Prerequisites](#prerequisites)
+- [Environment Configuration](#environment-configuration)
 - [Environment Setup](#environment-setup)
 - [Storage Architecture](#storage-architecture)
 - [Data Preparation](#data-preparation)
-  - [1. Initialize Scratch Space](#1-initialize-scratch-space)
-  - [2. Clear Home Quota](#2-clear-home-quota)
+  - [1. Initialize Data Directory](#1-initialize-data-directory)
+  - [2. Clear Home Quota (HPC only)](#2-clear-home-quota-hpc-only)
   - [3. Ingest SpeakingFaces Dataset](#3-ingest-speakingfaces-dataset)
   - [4. Prepare Noise Corpus](#4-prepare-noise-corpus)
 - [Verification](#verification)
@@ -18,24 +19,47 @@ This guide covers environment setup, data preparation, and project configuration
 
 ## Prerequisites
 
-- Access to the ENUCC cluster with SLURM job scheduler
+- SLURM job scheduler (for HPC) **or** a local machine with a GPU
 - HuggingFace account (for downloading ISSAI/SpeakingFaces dataset)
-- `conda` or `mamba` available on the cluster
+- `conda` or `mamba` available
+
+## Environment Configuration
+
+All user-specific paths are set through a `.env` file at the project root.
+Scripts automatically source this file, so **no hardcoded paths exist in the codebase**.
+
+```bash
+# From the project root
+cp .env.example .env
+```
+
+Open `.env` and set the two required paths:
+
+```dotenv
+# Root directory for ALL TAVSE data (LMDBs, audio, noise, checkpoints, logs).
+# Should be on a high-capacity, fast filesystem (scratch, local SSD, etc.).
+TAVSE_DATA_ROOT=/path/to/your/tavse/data
+
+# Root directory for the TAVSE source code (the directory containing .env).
+TAVSE_PROJECT_DIR=/path/to/TAVSE
+```
+
+See `.env.example` for the full list of optional variables (SLURM partitions, GPU flags, etc.).
 
 ## Environment Setup
 
 ### 1. Create Conda Environment
 
 ```bash
-# On the login node
+# On the login node (or locally)
 conda create -n tavse python=3.10 -y
 conda activate tavse
 
-# Install PyTorch (adjust CUDA version for your cluster)
+# Install PyTorch (adjust CUDA version for your system)
 pip install torch torchaudio torchvision --index-url https://download.pytorch.org/whl/cu118
 
 # Install remaining dependencies
-cd ~/my_projects/AVTSE/TAVSE
+cd "$TAVSE_PROJECT_DIR"
 pip install -r requirements.txt
 ```
 
@@ -45,15 +69,17 @@ pip install -r requirements.txt
 # Login to HuggingFace (needed for ISSAI/SpeakingFaces access)
 huggingface-cli login
 
-# CRITICAL: Redirect HF cache to scratch (not home!)
-echo 'export HF_HOME=/mnt/scratch/users/40741008/tavse/.hf_cache' >> ~/.bashrc
+# CRITICAL: Redirect HF cache to your data root (not home!)
+# This is already configured in .env via HF_HOME.
+# If your shell doesn't auto-source .env, add this to ~/.bashrc:
+echo "export HF_HOME=\$TAVSE_DATA_ROOT/.hf_cache" >> ~/.bashrc
 source ~/.bashrc
 ```
 
 ### 3. Set PYTHONPATH
 
 ```bash
-echo 'export PYTHONPATH=~/my_projects/AVTSE/TAVSE:${PYTHONPATH:-}' >> ~/.bashrc
+echo "export PYTHONPATH=\$TAVSE_PROJECT_DIR:\${PYTHONPATH:-}" >> ~/.bashrc
 source ~/.bashrc
 ```
 
@@ -61,20 +87,20 @@ source ~/.bashrc
 
 ## Storage Architecture
 
-TAVSE uses a **three-tier storage strategy** to work within the cluster's constraints:
+TAVSE uses a **three-tier storage strategy** to work within typical HPC constraints:
 
-| Tier | Path | Capacity | Contents |
+| Tier | Path | Typical Capacity | Contents |
 |------|------|----------|----------|
-| **Home** (NFS) | `~/my_projects/AVTSE/TAVSE/` | 50 GB quota | Code, configs, conda env |
-| **Scratch** (Lustre) | `/mnt/scratch/users/40741008/tavse/` | ~67 TB free, no quota | ALL data, checkpoints, logs |
-| **Local /tmp** | `/tmp/tavse_data/` | ~175 GB | Optional: LMDB cache for faster I/O |
+| **Home** (NFS) | `$TAVSE_PROJECT_DIR` | ~50 GB (quota-limited) | Code, configs, conda env |
+| **Scratch** (fast filesystem) | `$TAVSE_DATA_ROOT` | Large, often no quota | ALL data, checkpoints, logs |
+| **Local /tmp** | `/tmp/tavse_data/` | Varies (~100–200 GB) | Optional: LMDB cache for faster I/O |
 
-**Key rule:** Never write data, checkpoints, or logs to home. Everything goes to scratch.
+> **Key rule:** Never write data, checkpoints, or logs to your home directory. Everything goes to `$TAVSE_DATA_ROOT`.
 
-### Scratch Directory Structure
+### Data Directory Structure
 
 ```
-/mnt/scratch/users/40741008/tavse/
+$TAVSE_DATA_ROOT/
 ├── .hf_cache/                    # HuggingFace downloads
 ├── staging/                      # Temporary zip downloads
 ├── processed/
@@ -99,21 +125,25 @@ TAVSE uses a **three-tier storage strategy** to work within the cluster's constr
 
 ## Data Preparation
 
-### 1. Initialize Scratch Space
+> **Note:** All scripts below auto-source the `.env` file from the project root,
+> so `$TAVSE_DATA_ROOT` and `$TAVSE_PROJECT_DIR` are available inside every script.
+
+### 1. Initialize Data Directory
 
 ```bash
-SCRATCH_BASE=/mnt/scratch/users/40741008/tavse
+# Source your .env (scripts do this automatically, but useful interactively)
+source "$(dirname "$0")/../.env" 2>/dev/null || source .env
 
-mkdir -p ${SCRATCH_BASE}/{staging,.hf_cache}
-mkdir -p ${SCRATCH_BASE}/processed/{audio_16k,noise,metadata}
-mkdir -p ${SCRATCH_BASE}/{checkpoints,logs}
+mkdir -p "${TAVSE_DATA_ROOT}"/{staging,.hf_cache}
+mkdir -p "${TAVSE_DATA_ROOT}"/processed/{audio_16k,noise,metadata}
+mkdir -p "${TAVSE_DATA_ROOT}"/{checkpoints,logs}
 
 # Verify write access
-dd if=/dev/zero of=${SCRATCH_BASE}/write_test bs=1M count=10 oflag=direct 2>/dev/null && \
-    rm ${SCRATCH_BASE}/write_test && echo "Scratch write OK"
+dd if=/dev/zero of="${TAVSE_DATA_ROOT}/write_test" bs=1M count=10 oflag=direct 2>/dev/null && \
+    rm "${TAVSE_DATA_ROOT}/write_test" && echo "Data root write OK"
 ```
 
-### 2. Clear Home Quota
+### 2. Clear Home Quota (HPC only)
 
 If your home directory is near quota:
 
@@ -135,7 +165,7 @@ The ingestion pipeline downloads each subject from HuggingFace, extracts 96×96 
 **Option A: Full ingestion as SLURM job** (~24 hours for all 142 subjects)
 
 ```bash
-cd ~/my_projects/AVTSE/TAVSE
+cd "$TAVSE_PROJECT_DIR"
 sbatch scripts/01_ingest_dataset.sh
 ```
 
@@ -153,7 +183,7 @@ sbatch scripts/01_ingest_dataset.sh --resume
 ```
 
 **What it does:**
-1. Downloads `sub_{id}_ia.zip` to scratch staging (~6.4 GB per subject)
+1. Downloads `sub_{id}_ia.zip` to `$TAVSE_DATA_ROOT/staging/` (~6.4 GB per subject)
 2. Opens zip in streaming mode (no full extraction)
 3. Detects face landmarks on RGB frames → computes mouth bounding box
 4. Crops 96×96 mouth ROIs for both RGB and thermal frames
@@ -175,7 +205,7 @@ Downloads and resamples the DEMAND noise corpus:
 sbatch scripts/02_prepare_noise.sh
 ```
 
-If automatic download fails, manually download from [Zenodo](https://zenodo.org/record/1227121) and place the zip in the staging directory.
+If automatic download fails, manually download from [Zenodo](https://zenodo.org/record/1227121) and place the zip in `$TAVSE_DATA_ROOT/staging/`.
 
 ---
 
@@ -184,22 +214,25 @@ If automatic download fails, manually download from [Zenodo](https://zenodo.org/
 After ingestion, verify the processed data:
 
 ```bash
+source .env
+
 # Check LMDB sizes
-du -sh /mnt/scratch/users/40741008/tavse/processed/rgb_mouth.lmdb/
-du -sh /mnt/scratch/users/40741008/tavse/processed/thermal_mouth.lmdb/
+du -sh "$TAVSE_DATA_ROOT/processed/rgb_mouth.lmdb/"
+du -sh "$TAVSE_DATA_ROOT/processed/thermal_mouth.lmdb/"
 
 # Check manifests
-for f in /mnt/scratch/users/40741008/tavse/processed/metadata/*_manifest.csv; do
-    echo "$(basename $f): $(wc -l < $f) entries"
+for f in "$TAVSE_DATA_ROOT"/processed/metadata/*_manifest.csv; do
+    echo "$(basename "$f"): $(wc -l < "$f") entries"
 done
 
 # Check audio files
-ls /mnt/scratch/users/40741008/tavse/processed/audio_16k/ | wc -l
+ls "$TAVSE_DATA_ROOT/processed/audio_16k/" | wc -l
 
 # Quick sanity check: verify LMDB reads work
 python3 -c "
-import lmdb
-env = lmdb.open('/mnt/scratch/users/40741008/tavse/processed/rgb_mouth.lmdb', readonly=True)
+import os, lmdb
+data_root = os.environ['TAVSE_DATA_ROOT']
+env = lmdb.open(os.path.join(data_root, 'processed/rgb_mouth.lmdb'), readonly=True)
 with env.begin() as txn:
     cursor = txn.cursor()
     cursor.first()
@@ -210,7 +243,7 @@ env.close()
 "
 
 # Verify noise files
-ls /mnt/scratch/users/40741008/tavse/processed/noise/*.wav | wc -l
+ls "$TAVSE_DATA_ROOT/processed/noise/"*.wav | wc -l
 ```
 
 ---
@@ -220,7 +253,7 @@ ls /mnt/scratch/users/40741008/tavse/processed/noise/*.wav | wc -l
 ### Home quota exceeded
 ```bash
 quota -s                    # Check current usage
-du -sh ~/.cache/huggingface # Should be empty (redirected to scratch)
+du -sh ~/.cache/huggingface # Should be empty (redirected via HF_HOME)
 du -sh ~/.conda             # Conda env (~5 GB)
 du -sh ~/.vscode-server     # VS Code (~2.6 GB)
 ```

@@ -44,6 +44,68 @@ def set_seed(seed: int):
     torch.backends.cudnn.benchmark = False
 
 
+def configure_gpu() -> Dict[str, bool]:
+    """
+    Auto-detect GPU capabilities and apply optimizations.
+
+    Reads from environment variables (set via .env):
+        TAVSE_ENABLE_TF32  — enable TF32 on Ampere+ (default: auto-detect)
+        TAVSE_USE_BF16     — use BF16 instead of FP16 (default: auto-detect)
+        TAVSE_TORCH_COMPILE — enable torch.compile (default: false)
+
+    Returns dict of applied optimizations for logging.
+    """
+    opts = {"tf32": False, "bf16": False, "compile": False, "gpu_name": "N/A", "gpu_mem_gb": 0}
+
+    if not torch.cuda.is_available():
+        return opts
+
+    gpu_name = torch.cuda.get_device_name(0)
+    gpu_mem = torch.cuda.get_device_properties(0).total_mem / 1e9
+    compute_cap = torch.cuda.get_device_capability(0)
+    opts["gpu_name"] = gpu_name
+    opts["gpu_mem_gb"] = round(gpu_mem, 1)
+
+    def _env_bool(key: str, default: bool) -> bool:
+        val = os.environ.get(key, "").lower()
+        if val in ("true", "1", "yes"):
+            return True
+        if val in ("false", "0", "no"):
+            return False
+        return default
+
+    # ── TF32: ~2x matmul speed on Ampere+ (compute cap >= 8.0) ──
+    is_ampere_plus = compute_cap[0] >= 8
+    enable_tf32 = _env_bool("TAVSE_ENABLE_TF32", default=is_ampere_plus)
+    if enable_tf32 and is_ampere_plus:
+        torch.backends.cuda.matmul.allow_tf32 = True
+        torch.backends.cudnn.allow_tf32 = True
+        opts["tf32"] = True
+
+    # ── BF16: better numerical stability than FP16 on Ampere+ ──
+    use_bf16 = _env_bool("TAVSE_USE_BF16", default=is_ampere_plus)
+    if use_bf16 and is_ampere_plus:
+        opts["bf16"] = True
+
+    # ── torch.compile: graph optimization (PyTorch 2.x) ──
+    enable_compile = _env_bool("TAVSE_TORCH_COMPILE", default=False)
+    if enable_compile:
+        opts["compile"] = True
+
+    # ── cuDNN benchmark: faster convolutions for fixed-size inputs ──
+    torch.backends.cudnn.benchmark = True
+
+    print(f"\n=== GPU Optimizations ===")
+    print(f"  GPU: {gpu_name} ({gpu_mem:.0f} GB, compute {compute_cap[0]}.{compute_cap[1]})")
+    print(f"  TF32:    {'ON' if opts['tf32'] else 'OFF'}")
+    print(f"  BF16:    {'ON' if opts['bf16'] else 'OFF (using FP16)'}")
+    print(f"  Compile: {'ON' if opts['compile'] else 'OFF'}")
+    print(f"  cuDNN benchmark: ON")
+    print(f"=========================\n")
+
+    return opts
+
+
 def get_cosine_schedule_with_warmup(
     optimizer, warmup_steps: int, total_steps: int, min_lr: float = 1e-6
 ):
@@ -138,6 +200,7 @@ def train_epoch(
     epoch: int,
     global_step: int,
     writer: SummaryWriter,
+    amp_dtype: torch.dtype = torch.float16,
 ) -> tuple:
     """Run one training epoch. Returns (avg_loss, global_step)."""
     model.train()
@@ -162,7 +225,7 @@ def train_epoch(
         thr_frames = batch["thr_frames"].to(device) if use_thermal and batch["thr_frames"] is not None else None
 
         # Forward pass with mixed precision
-        with torch.amp.autocast("cuda", enabled=cfg.training.use_amp):
+        with torch.amp.autocast("cuda", enabled=cfg.training.use_amp, dtype=amp_dtype):
             outputs = model(noisy_mag, noisy_phase, rgb_frames, thr_frames)
 
         # Loss computation in FP32
@@ -274,15 +337,22 @@ def main():
     print(f"Active modalities: {cfg.model.active_modalities}")
     print(f"{'='*60}\n")
 
-    # ── Device ────────────────────────────────────────────────────
+    # ── Device & GPU Optimizations ────────────────────────────────
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    gpu_opts = configure_gpu()
     print(f"Device: {device}")
-    if torch.cuda.is_available():
-        print(f"GPU: {torch.cuda.get_device_name(0)}")
-        print(f"GPU Memory: {torch.cuda.get_device_properties(0).total_mem / 1e9:.1f} GB")
+
+    # Determine mixed-precision dtype (BF16 on Ampere+, FP16 otherwise)
+    amp_dtype = torch.bfloat16 if gpu_opts["bf16"] else torch.float16
 
     # ── Model ─────────────────────────────────────────────────────
     model = TAVSEModel.from_config(cfg).to(device)
+
+    # Optional: torch.compile for graph optimization (PyTorch 2.x)
+    if gpu_opts["compile"] and hasattr(torch, "compile"):
+        print("Applying torch.compile()...")
+        model = torch.compile(model)
+
     param_counts = model.get_num_params()
     print(f"\nModel parameters:")
     for k, v in param_counts.items():
@@ -333,7 +403,7 @@ def main():
         optimizer, cfg.training.warmup_steps, total_steps
     )
 
-    scaler = torch.amp.GradScaler("cuda", enabled=cfg.training.use_amp)
+    scaler = torch.amp.GradScaler("cuda", enabled=cfg.training.use_amp and not gpu_opts["bf16"])
 
     # ── Checkpoint & Logging ──────────────────────────────────────
     ckpt_mgr = CheckpointManager(cfg.checkpoint_dir, cfg.training.keep_top_k)
@@ -362,7 +432,7 @@ def main():
         # Train
         avg_loss, global_step = train_epoch(
             model, train_loader, criterion, optimizer, scheduler,
-            scaler, cfg, epoch, global_step, writer,
+            scaler, cfg, epoch, global_step, writer, amp_dtype,
         )
 
         # Validate

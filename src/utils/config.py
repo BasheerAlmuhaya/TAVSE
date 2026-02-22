@@ -3,6 +3,12 @@ TAVSE configuration management.
 
 Loads YAML configs, applies defaults, and provides a unified config object
 for all experiments (audio-only, audio+rgb, audio+thermal, audio+rgb+thermal).
+
+All cluster/user-specific paths are resolved via environment variables:
+    TAVSE_DATA_ROOT  — root for all data, checkpoints, logs
+    TAVSE_PROJECT_DIR — root of the TAVSE source tree
+
+Set these in a `.env` file (see `.env.example`) or export them in your shell.
 """
 
 import os
@@ -12,9 +18,52 @@ from typing import List, Optional
 from pathlib import Path
 
 
-# ── Cluster paths ──────────────────────────────────────────────────────────
-SCRATCH_BASE = "/mnt/scratch/users/40741008/tavse"
-HOME_BASE = os.path.expanduser("~/my_projects/AVTSE/TAVSE")
+# ── Load .env file if present (lightweight, no extra dependency) ───────────
+def _load_dotenv(env_path: Optional[str] = None):
+    """Load key=value pairs from a .env file into os.environ (if not already set)."""
+    if env_path is None:
+        # Walk up from this file to find .env next to the project root
+        _here = Path(__file__).resolve().parent  # src/utils/
+        for candidate in [_here / "../../.env", _here / "../../../.env"]:
+            candidate = candidate.resolve()
+            if candidate.is_file():
+                env_path = str(candidate)
+                break
+    if env_path is None or not os.path.isfile(env_path):
+        return
+    with open(env_path) as f:
+        for line in f:
+            line = line.strip()
+            if not line or line.startswith("#") or "=" not in line:
+                continue
+            key, _, value = line.partition("=")
+            key, value = key.strip(), value.strip()
+            # Do NOT override existing env vars (explicit exports take priority)
+            if key not in os.environ:
+                # Resolve ${VAR} references within values
+                for ref_key, ref_val in os.environ.items():
+                    value = value.replace(f"${{{ref_key}}}", ref_val)
+                os.environ[key] = value
+
+_load_dotenv()
+
+
+# ── Resolve base paths from environment ────────────────────────────────────
+def _get_data_root() -> str:
+    """Return TAVSE_DATA_ROOT or a sensible default."""
+    return os.environ.get("TAVSE_DATA_ROOT", os.path.expanduser("~/tavse_data"))
+
+def _get_project_dir() -> str:
+    """Return TAVSE_PROJECT_DIR or auto-detect from this file's location."""
+    default = str(Path(__file__).resolve().parent.parent.parent)
+    return os.environ.get("TAVSE_PROJECT_DIR", default)
+
+DATA_ROOT = _get_data_root()
+PROJECT_DIR = _get_project_dir()
+
+# Legacy aliases (kept for backward compatibility with ingest_pipeline.py)
+SCRATCH_BASE = DATA_ROOT
+HOME_BASE = PROJECT_DIR
 
 
 @dataclass
@@ -48,15 +97,15 @@ class VisualConfig:
 
 @dataclass
 class DataConfig:
-    scratch_base: str = SCRATCH_BASE
-    rgb_lmdb_path: str = f"{SCRATCH_BASE}/processed/rgb_mouth.lmdb"
-    thermal_lmdb_path: str = f"{SCRATCH_BASE}/processed/thermal_mouth.lmdb"
-    audio_dir: str = f"{SCRATCH_BASE}/processed/audio_16k"
-    noise_dir: str = f"{SCRATCH_BASE}/processed/noise"
-    metadata_dir: str = f"{SCRATCH_BASE}/processed/metadata"
-    train_manifest: str = f"{SCRATCH_BASE}/processed/metadata/train_manifest.csv"
-    val_manifest: str = f"{SCRATCH_BASE}/processed/metadata/val_manifest.csv"
-    test_manifest: str = f"{SCRATCH_BASE}/processed/metadata/test_manifest.csv"
+    scratch_base: str = field(default_factory=lambda: DATA_ROOT)
+    rgb_lmdb_path: str = field(default_factory=lambda: f"{DATA_ROOT}/processed/rgb_mouth.lmdb")
+    thermal_lmdb_path: str = field(default_factory=lambda: f"{DATA_ROOT}/processed/thermal_mouth.lmdb")
+    audio_dir: str = field(default_factory=lambda: f"{DATA_ROOT}/processed/audio_16k")
+    noise_dir: str = field(default_factory=lambda: f"{DATA_ROOT}/processed/noise")
+    metadata_dir: str = field(default_factory=lambda: f"{DATA_ROOT}/processed/metadata")
+    train_manifest: str = field(default_factory=lambda: f"{DATA_ROOT}/processed/metadata/train_manifest.csv")
+    val_manifest: str = field(default_factory=lambda: f"{DATA_ROOT}/processed/metadata/val_manifest.csv")
+    test_manifest: str = field(default_factory=lambda: f"{DATA_ROOT}/processed/metadata/test_manifest.csv")
     # Noise mixing
     train_snr_range: List[float] = field(default_factory=lambda: [-5.0, 0.0, 5.0, 10.0, 15.0])
     test_snr_levels: List[float] = field(default_factory=lambda: [-5.0, 0.0, 5.0, 10.0])
@@ -106,10 +155,10 @@ class TrainingConfig:
     # Gradient accumulation
     grad_accum_steps: int = 1
     # Checkpointing
-    checkpoint_dir: str = f"{SCRATCH_BASE}/checkpoints"
+    checkpoint_dir: str = field(default_factory=lambda: f"{DATA_ROOT}/checkpoints")
     keep_top_k: int = 3
     # Logging
-    log_dir: str = f"{SCRATCH_BASE}/logs"
+    log_dir: str = field(default_factory=lambda: f"{DATA_ROOT}/logs")
     log_interval: int = 50  # steps
     val_interval: int = 1    # epochs
     # Seed
@@ -145,6 +194,17 @@ def _merge_dict(base: dict, override: dict) -> dict:
     return base
 
 
+def _expand_env_vars(obj):
+    """Recursively expand ${VAR} references in string values."""
+    if isinstance(obj, str):
+        return os.path.expandvars(obj)
+    elif isinstance(obj, dict):
+        return {k: _expand_env_vars(v) for k, v in obj.items()}
+    elif isinstance(obj, list):
+        return [_expand_env_vars(v) for v in obj]
+    return obj
+
+
 def _dict_to_config(d: dict) -> TAVSEConfig:
     """Convert a flat/nested dict to TAVSEConfig."""
     cfg = TAVSEConfig()
@@ -167,9 +227,14 @@ def _dict_to_config(d: dict) -> TAVSEConfig:
 
 
 def load_config(yaml_path: str) -> TAVSEConfig:
-    """Load a YAML config file and return a TAVSEConfig."""
+    """Load a YAML config file and return a TAVSEConfig.
+
+    All string values support ``${VAR}`` expansion against the process
+    environment, so configs can use ``${TAVSE_DATA_ROOT}`` etc.
+    """
     with open(yaml_path, "r") as f:
         raw = yaml.safe_load(f) or {}
+    raw = _expand_env_vars(raw)
     return _dict_to_config(raw)
 
 
@@ -179,4 +244,5 @@ def load_config_with_overrides(yaml_path: str, overrides: Optional[dict] = None)
         raw = yaml.safe_load(f) or {}
     if overrides:
         _merge_dict(raw, overrides)
+    raw = _expand_env_vars(raw)
     return _dict_to_config(raw)

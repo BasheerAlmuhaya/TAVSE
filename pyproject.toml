@@ -1,0 +1,85 @@
+[build-system]
+requires = ["setuptools>=65.0", "wheel"]
+build-backend = "setuptools.backends._legacy:_Backend"
+
+[project]
+name = "tavse"
+version = "0.1.0"
+description = "Thermal Audio-Visual Speech Enhancement"
+readme = "README.md"
+license = {text = "MIT"}
+requires-python = ">=3.10"
+authors = [
+    {name = "Basheer Almuhaya"},
+]
+keywords = ["speech-enhancement", "multimodal", "thermal", "audio-visual", "deep-learning"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Science/Research",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+]
+
+dependencies = [
+    "torch>=2.1.0",
+    "torchaudio>=2.1.0",
+    "torchvision>=0.16.0",
+    "lmdb>=1.4.1",
+    "numpy>=1.24.0",
+    "opencv-python-headless>=4.8.0",
+    "mediapipe>=0.10.0",
+    "Pillow>=10.0.0",
+    "pandas>=2.0.0",
+    "tqdm>=4.65.0",
+    "huggingface-hub>=0.19.0",
+    "librosa>=0.10.0",
+    "soundfile>=0.12.0",
+    "pesq>=0.0.4",
+    "pystoi>=0.4.0",
+    "mir-eval>=0.7",
+    "tensorboard>=2.14.0",
+    "pyyaml>=6.0",
+    "scipy>=1.10.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pre-commit>=3.0.0",
+    "ruff>=0.4.0",
+    "pytest>=7.0.0",
+]
+
+[project.urls]
+Repository = "https://github.com/BasheerAlmuhaya/TAVSE"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["src*"]
+
+[tool.ruff]
+target-version = "py310"
+line-length = 120
+
+[tool.ruff.lint]
+select = [
+    "E",    # pycodestyle errors
+    "F",    # pyflakes
+    "I",    # isort
+    "S",    # bandit (security)
+    "B",    # bugbear
+    "UP",   # pyupgrade
+]
+ignore = [
+    "S101",  # assert usage (fine in tests/research code)
+    "S603",  # subprocess without shell=True
+    "S607",  # partial exec path
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = ["S101"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]

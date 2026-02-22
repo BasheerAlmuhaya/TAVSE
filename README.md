@@ -47,23 +47,29 @@ TAVSE/
 ```bash
 # 1. Setup environment
 conda create -n tavse python=3.10 -y && conda activate tavse
-pip install torch torchaudio torchvision --index-url https://download.pytorch.org/whl/cu118
+pip install torch torchaudio torchvision  # add --index-url for specific CUDA version
 pip install -r requirements.txt
 
-# 2. Prepare data (see docs/SETUP.md for full details)
+# 2. Configure local paths (REQUIRED — sets data root, HF cache, etc.)
+cp .env.example .env
+# Edit .env — set TAVSE_DATA_ROOT, TAVSE_PROJECT_DIR, etc.
+
+# 3. Prepare data (see docs/SETUP.md for full details)
 sbatch scripts/01_ingest_dataset.sh
 sbatch scripts/02_prepare_noise.sh
 
-# 3. Train models
+# 4. Train models
 sbatch scripts/03_train.sh audio_only
 sbatch scripts/03_train.sh audio_rgb
 sbatch scripts/03_train.sh audio_thermal
 sbatch scripts/03_train.sh audio_rgb_thermal
 
-# 4. Evaluate
+# 5. Evaluate
 sbatch scripts/04_evaluate.sh audio_only
 sbatch scripts/04_evaluate.sh audio_rgb_thermal
 ```
+
+> **GPU Acceleration:** On Ampere+ GPUs (A100, RTX 30xx, etc.), training automatically enables TF32 and BF16 for ~2x speedup. See `.env.example` for configuration options.
 
 ## Documentation
 

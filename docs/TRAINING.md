@@ -2,6 +2,11 @@
 
 Step-by-step guide for training, evaluating, and comparing all four TAVSE model variants.
 
+> **GPU Auto-Detection:** The training script automatically detects your GPU
+> capabilities and enables TF32 matmul and BF16 mixed-precision on Ampere+
+> GPUs (A100, H100, RTX 30xx/40xx). No manual flags are needed — the optimal
+> precision settings are applied at runtime.
+
 ## Table of Contents
 
 - [Overview](#overview)
@@ -72,7 +77,8 @@ Each model trains independently — you can submit all four as SLURM jobs simult
 ### Step 1: Audio-Only Baseline (Model A)
 
 ```bash
-cd ~/my_projects/AVTSE/TAVSE
+cd /path/to/TAVSE
+source .env   # loads TAVSE_DATA_ROOT, HF_HOME, PYTHONPATH, etc.
 
 # Submit training job
 sbatch scripts/03_train.sh audio_only
@@ -114,10 +120,10 @@ For debugging or development, you can run training interactively:
 # Request GPU node
 srun --partition=gpu --gres=gpu:1 --mem=64G --cpus-per-task=8 --time=02:00:00 --pty bash
 
-# Activate environment
+# Activate environment and load project settings
 conda activate tavse
-export PYTHONPATH=~/my_projects/AVTSE/TAVSE:${PYTHONPATH:-}
-export HF_HOME=/mnt/scratch/users/40741008/tavse/.hf_cache
+cd /path/to/TAVSE
+source .env   # loads TAVSE_DATA_ROOT, HF_HOME, PYTHONPATH, etc.
 
 # Run training
 python -m src.training.train --config configs/audio_only.yaml
@@ -142,10 +148,10 @@ python -m src.training.train \
 
 ```bash
 # From login node (port forward to your local machine)
-tensorboard --logdir /mnt/scratch/users/40741008/tavse/logs/ --port 6006
+tensorboard --logdir $TAVSE_DATA_ROOT/logs/ --port 6006
 
 # Or for a specific experiment
-tensorboard --logdir /mnt/scratch/users/40741008/tavse/logs/audio_rgb/ --port 6006
+tensorboard --logdir $TAVSE_DATA_ROOT/logs/audio_rgb/ --port 6006
 ```
 
 Then open `http://localhost:6006` in your browser (with SSH port forwarding).
@@ -155,7 +161,7 @@ Then open `http://localhost:6006` in your browser (with SSH port forwarding).
 ```bash
 squeue -u $(whoami)                    # Running jobs
 sacct -j JOBID --format=JobID,State,Elapsed,MaxRSS  # Completed job details
-tail -f /mnt/scratch/users/40741008/tavse/logs/train_JOBID.out  # Live output
+tail -f $TAVSE_DATA_ROOT/logs/train_JOBID.out  # Live output
 ```
 
 ### Key Metrics to Watch
@@ -220,7 +226,7 @@ sbatch scripts/04_evaluate.sh audio_rgb_thermal
 
 Results are saved to:
 ```
-/mnt/scratch/users/40741008/tavse/checkpoints/{experiment}/eval/
+$TAVSE_DATA_ROOT/checkpoints/{experiment}/eval/
 ├── eval_metrics.json       # Summary statistics (mean, std, 95% CI)
 ├── eval_raw_metrics.json   # Per-utterance metrics (for statistical tests)
 └── samples/
@@ -235,8 +241,8 @@ Results are saved to:
 ```bash
 python -m src.training.evaluate \
     --config configs/audio_thermal.yaml \
-    --checkpoint /mnt/scratch/users/40741008/tavse/checkpoints/audio_thermal/latest.pt \
-    --output-dir /mnt/scratch/users/40741008/tavse/checkpoints/audio_thermal/eval \
+    --checkpoint $TAVSE_DATA_ROOT/checkpoints/audio_thermal/latest.pt \
+    --output-dir $TAVSE_DATA_ROOT/checkpoints/audio_thermal/eval \
     --save-samples 10
 ```
 
@@ -375,7 +381,7 @@ training:
 
 Only top-3 checkpoints are kept per experiment. To manually clean:
 ```bash
-ls -lhS /mnt/scratch/users/40741008/tavse/checkpoints/*/
+ls -lhS $TAVSE_DATA_ROOT/checkpoints/*/
 ```
 
 ### Reproducibility
@@ -394,7 +400,7 @@ Expected variance: ±0.1 dB SI-SNR between seeds.
 
 ```bash
 # Quick summary of all evaluated models
-for dir in /mnt/scratch/users/40741008/tavse/checkpoints/*/eval; do
+for dir in $TAVSE_DATA_ROOT/checkpoints/*/eval; do
     if [ -f "$dir/eval_metrics.json" ]; then
         exp=$(basename $(dirname $dir))
         sisnr=$(python3 -c "import json; d=json.load(open('$dir/eval_metrics.json')); print(f\"{d['statistics']['si_snr']['mean']:.2f}\")")

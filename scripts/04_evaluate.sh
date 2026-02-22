@@ -1,13 +1,4 @@
 #!/bin/bash
-#SBATCH --job-name=tavse-eval
-#SBATCH --partition=gpu
-#SBATCH --gres=gpu:1
-#SBATCH --time=04:00:00
-#SBATCH --mem=32G
-#SBATCH --cpus-per-task=8
-#SBATCH --output=/mnt/scratch/users/40741008/tavse/logs/eval_%j.out
-#SBATCH --error=/mnt/scratch/users/40741008/tavse/logs/eval_%j.err
-
 # ─────────────────────────────────────────────────────────────
 # TAVSE: Model Evaluation
 #
@@ -24,6 +15,27 @@
 #   sbatch scripts/04_evaluate.sh audio_thermal audio_rgb
 # ─────────────────────────────────────────────────────────────
 
+# ── Resolve project directory ─────────────────────────────────
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
+
+# ── Load .env ─────────────────────────────────────────────────
+if [ -f "${PROJECT_DIR}/.env" ]; then
+    set -a; source "${PROJECT_DIR}/.env"; set +a
+else
+    echo "ERROR: ${PROJECT_DIR}/.env not found. Copy .env.example to .env."; exit 1
+fi
+
+# ── SLURM directives ─────────────────────────────────────────
+#SBATCH --job-name=tavse-eval
+#SBATCH --partition=${SLURM_GPU_PARTITION:-gpu}
+#SBATCH --gres=${SLURM_GPU_GRES:-gpu:1}
+#SBATCH --time=04:00:00
+#SBATCH --mem=32G
+#SBATCH --cpus-per-task=8
+#SBATCH --output=${TAVSE_DATA_ROOT}/logs/eval_%j.out
+#SBATCH --error=${TAVSE_DATA_ROOT}/logs/eval_%j.err
+
 set -euo pipefail
 
 # ── Parse arguments ───────────────────────────────────────────
@@ -31,16 +43,15 @@ EXPERIMENT=${1:-audio_only}
 COMPARE_WITH=${2:-}
 
 # ── Paths ─────────────────────────────────────────────────────
-SCRATCH_BASE=/mnt/scratch/users/40741008/tavse
-PROJECT_DIR=~/my_projects/AVTSE/TAVSE
-CONFIG_FILE=${PROJECT_DIR}/configs/${EXPERIMENT}.yaml
-CKPT_DIR=${SCRATCH_BASE}/checkpoints/${EXPERIMENT}
-EVAL_DIR=${CKPT_DIR}/eval
+SCRATCH_BASE="${TAVSE_DATA_ROOT:?Set TAVSE_DATA_ROOT in .env}"
+CONFIG_FILE="${PROJECT_DIR}/configs/${EXPERIMENT}.yaml"
+CKPT_DIR="${SCRATCH_BASE}/checkpoints/${EXPERIMENT}"
+EVAL_DIR="${CKPT_DIR}/eval"
 
 # Find best checkpoint (highest SI-SNR in filename)
 CHECKPOINT=$(ls -t ${CKPT_DIR}/ckpt_*.pt 2>/dev/null | head -1)
 if [ -z "${CHECKPOINT}" ]; then
-    CHECKPOINT=${CKPT_DIR}/latest.pt
+    CHECKPOINT="${CKPT_DIR}/latest.pt"
 fi
 
 if [ ! -f "${CHECKPOINT}" ]; then
@@ -49,16 +60,17 @@ if [ ! -f "${CHECKPOINT}" ]; then
 fi
 
 # ── Environment ───────────────────────────────────────────────
-export HF_HOME=${SCRATCH_BASE}/.hf_cache
-export PYTHONPATH=${PROJECT_DIR}:${PYTHONPATH:-}
+export HF_HOME="${HF_HOME:-${SCRATCH_BASE}/.hf_cache}"
+export PYTHONPATH="${PROJECT_DIR}:${PYTHONPATH:-}"
+export TAVSE_DATA_ROOT="${SCRATCH_BASE}"
 
 # ── Storage check ─────────────────────────────────────────────
 echo "=== Storage Check ==="
-echo "Home: $(du -sh ~ 2>/dev/null | cut -f1) / 50 GB quota"
-echo "Scratch: $(du -sh $SCRATCH_BASE 2>/dev/null | cut -f1) (no quota)"
+echo "Home: $(du -sh ~ 2>/dev/null | cut -f1)"
+echo "Data root: $(du -sh ${SCRATCH_BASE} 2>/dev/null | cut -f1)"
 echo "====================="
 
-cd ${PROJECT_DIR}
+cd "${PROJECT_DIR}"
 source activate tavse 2>/dev/null || conda activate tavse 2>/dev/null || true
 
 echo ""
@@ -75,7 +87,7 @@ echo ""
 # ── Build comparison flag ─────────────────────────────────────
 COMPARE_FLAG=""
 if [ -n "${COMPARE_WITH}" ]; then
-    COMPARE_METRICS=${SCRATCH_BASE}/checkpoints/${COMPARE_WITH}/eval/eval_metrics.json
+    COMPARE_METRICS="${SCRATCH_BASE}/checkpoints/${COMPARE_WITH}/eval/eval_metrics.json"
     if [ -f "${COMPARE_METRICS}" ]; then
         COMPARE_FLAG="--compare-with ${COMPARE_METRICS}"
     else
@@ -85,9 +97,9 @@ fi
 
 # ── Evaluate ──────────────────────────────────────────────────
 python -m src.training.evaluate \
-    --config ${CONFIG_FILE} \
-    --checkpoint ${CHECKPOINT} \
-    --output-dir ${EVAL_DIR} \
+    --config "${CONFIG_FILE}" \
+    --checkpoint "${CHECKPOINT}" \
+    --output-dir "${EVAL_DIR}" \
     --save-samples 5 \
     ${COMPARE_FLAG}
 

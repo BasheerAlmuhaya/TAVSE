@@ -6,7 +6,7 @@ broken down by SNR level and noise type. Supports statistical testing.
 
 Usage:
     python -m src.training.evaluate --config configs/audio_rgb_thermal.yaml \
-        --checkpoint /mnt/scratch/users/40741008/tavse/checkpoints/audio_rgb_thermal/best.pt
+        --checkpoint $TAVSE_DATA_ROOT/checkpoints/audio_rgb_thermal/best.pt
 """
 
 import os

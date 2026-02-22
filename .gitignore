@@ -1,3 +1,10 @@
+# ── Secrets & Local Configuration (NEVER commit) ─────────────
+# Contains user-specific paths, credentials, cluster details.
+# Users create their own from .env.example
+.env
+.env.local
+.env.*.local
+
 # Server-specific planning docs (contains cluster specs)
 .github/prompts/plan-tavse.prompt.md
 

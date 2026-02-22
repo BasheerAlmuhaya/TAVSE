@@ -1,12 +1,4 @@
 #!/bin/bash
-#SBATCH --job-name=tavse-ingest
-#SBATCH --partition=compute
-#SBATCH --time=24:00:00
-#SBATCH --mem=32G
-#SBATCH --cpus-per-task=8
-#SBATCH --output=/mnt/scratch/users/40741008/tavse/logs/ingest_%j.out
-#SBATCH --error=/mnt/scratch/users/40741008/tavse/logs/ingest_%j.err
-
 # ─────────────────────────────────────────────────────────────
 # TAVSE: Dataset Ingestion Pipeline
 #
@@ -19,28 +11,51 @@
 #   sbatch scripts/01_ingest_dataset.sh --resume     # Resume interrupted
 # ─────────────────────────────────────────────────────────────
 
+# ── Resolve project directory (robust to symlinks) ────────────
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
+
+# ── Load .env (user-specific paths) ──────────────────────────
+if [ -f "${PROJECT_DIR}/.env" ]; then
+    set -a
+    source "${PROJECT_DIR}/.env"
+    set +a
+else
+    echo "ERROR: ${PROJECT_DIR}/.env not found."
+    echo "Copy .env.example to .env and configure your paths."
+    exit 1
+fi
+
+# ── SLURM directives (submitted via sbatch, ignored if run directly) ───
+#SBATCH --job-name=tavse-ingest
+#SBATCH --partition=${SLURM_CPU_PARTITION:-compute}
+#SBATCH --time=24:00:00
+#SBATCH --mem=32G
+#SBATCH --cpus-per-task=8
+#SBATCH --output=${TAVSE_DATA_ROOT}/logs/ingest_%j.out
+#SBATCH --error=${TAVSE_DATA_ROOT}/logs/ingest_%j.err
+
 set -euo pipefail
 
 # ── Paths ─────────────────────────────────────────────────────
-SCRATCH_BASE=/mnt/scratch/users/40741008/tavse
-PROJECT_DIR=~/my_projects/AVTSE/TAVSE
+SCRATCH_BASE="${TAVSE_DATA_ROOT:?Set TAVSE_DATA_ROOT in .env}"
 
-# ── Redirect HuggingFace cache to scratch ─────────────────────
-export HF_HOME=${SCRATCH_BASE}/.hf_cache
-export TRANSFORMERS_CACHE=${HF_HOME}
+# ── Redirect HuggingFace cache to data root ───────────────────
+export HF_HOME="${HF_HOME:-${SCRATCH_BASE}/.hf_cache}"
+export TRANSFORMERS_CACHE="${HF_HOME}"
 
 # ── Create directories ────────────────────────────────────────
-mkdir -p ${SCRATCH_BASE}/{staging,processed/{rgb_mouth.lmdb,thermal_mouth.lmdb,audio_16k,noise,metadata},logs}
+mkdir -p "${SCRATCH_BASE}"/{staging,processed/{rgb_mouth.lmdb,thermal_mouth.lmdb,audio_16k,noise,metadata},logs}
 
 # ── Storage check ─────────────────────────────────────────────
 echo "=== Storage Check ==="
-echo "Home: $(du -sh ~ 2>/dev/null | cut -f1) / 50 GB quota"
+echo "Home: $(du -sh ~ 2>/dev/null | cut -f1)"
 quota -s 2>/dev/null | tail -1 || true
-echo "Scratch: $(du -sh $SCRATCH_BASE 2>/dev/null | cut -f1) (no quota)"
+echo "Data root: $(du -sh ${SCRATCH_BASE} 2>/dev/null | cut -f1)"
 echo "====================="
 
 # ── Load environment ──────────────────────────────────────────
-cd ${PROJECT_DIR}
+cd "${PROJECT_DIR}"
 
 # Activate conda environment (adjust name as needed)
 source activate tavse 2>/dev/null || conda activate tavse 2>/dev/null || true
