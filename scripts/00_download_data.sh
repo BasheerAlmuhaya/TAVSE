@@ -168,7 +168,7 @@ for sub_id in $(seq ${START_SUB} ${END_SUB}); do
 from huggingface_hub import hf_hub_download
 import os
 hf_hub_download(
-    repo_id='ISSAI/SpeakingFaces',
+    repo_id='ISSAI/Speaking_Faces',
     filename='${zip_file}',
     repo_type='dataset',
     cache_dir='${HF_CACHE}',
