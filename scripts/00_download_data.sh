@@ -13,7 +13,7 @@
 #   bash scripts/00_download_data.sh --check      # Check what's downloaded
 #
 # Prerequisites:
-#   - HuggingFace account with access to ISSAI/SpeakingFaces
+#   - HuggingFace account with access to ISSAI/Speaking_Faces
 #   - huggingface-cli login  (or set HF_TOKEN in .env)
 #
 # After this completes, submit the processing job:
@@ -117,7 +117,7 @@ fi
 if [ "$HF_AUTH_OK" = false ]; then
     echo ""
     echo "Not logged in to HuggingFace."
-    echo "The ISSAI/SpeakingFaces dataset requires authentication."
+    echo "The ISSAI/Speaking_Faces dataset requires authentication."
     echo ""
     echo "Options:"
     echo "  1) Run: huggingface-cli login"
@@ -153,9 +153,15 @@ FAILED=0
 SKIPPED=0
 DOWNLOADED=0
 
+# The repo stores zips under image_audio/ subdirectory:
+#   ISSAI/Speaking_Faces/image_audio/sub_X_ia.zip
+# hf_hub_download with local_dir preserves this structure, so we
+# flatten by moving the file up to STAGING_DIR/ after download.
+
 for sub_id in $(seq ${START_SUB} ${END_SUB}); do
     zip_file="sub_${sub_id}_ia.zip"
     zip_path="${STAGING_DIR}/${zip_file}"
+    hf_repo_path="image_audio/${zip_file}"  # path inside the HF repo
 
     if [ -f "${zip_path}" ]; then
         echo "[Skip] Subject ${sub_id}: already downloaded"
@@ -166,14 +172,18 @@ for sub_id in $(seq ${START_SUB} ${END_SUB}); do
     echo "[Download] Subject ${sub_id}/${END_SUB}..."
     if python -c "
 from huggingface_hub import hf_hub_download
-import os
-hf_hub_download(
+import shutil, os
+path = hf_hub_download(
     repo_id='ISSAI/Speaking_Faces',
-    filename='${zip_file}',
+    filename='${hf_repo_path}',
     repo_type='dataset',
     cache_dir='${HF_CACHE}',
     local_dir='${STAGING_DIR}',
 )
+# Flatten: move from staging/image_audio/sub_X_ia.zip -> staging/sub_X_ia.zip
+dest = os.path.join('${STAGING_DIR}', '${zip_file}')
+if os.path.abspath(path) != os.path.abspath(dest):
+    shutil.move(path, dest)
 print('  OK')
 " 2>&1; then
         DOWNLOADED=$((DOWNLOADED + 1))
@@ -182,6 +192,11 @@ print('  OK')
         FAILED=$((FAILED + 1))
     fi
 done
+
+# ── Clean up leftover HF subdirectory ─────────────────────────
+# hf_hub_download creates image_audio/ inside STAGING_DIR; after
+# flattening, the subdirectory is empty and can be removed.
+rmdir "${STAGING_DIR}/image_audio" 2>/dev/null || true
 
 # ── Summary ───────────────────────────────────────────────────
 echo ""

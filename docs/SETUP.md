@@ -20,7 +20,7 @@ This guide covers environment setup, data preparation, and project configuration
 ## Prerequisites
 
 - SLURM job scheduler (for HPC) **or** a local machine with a GPU
-- HuggingFace account (for downloading ISSAI/SpeakingFaces dataset)
+- HuggingFace account (for downloading ISSAI/Speaking_Faces dataset)
 - `conda` or `mamba` available
 
 ## Environment Configuration
@@ -65,7 +65,7 @@ pip install -r requirements.txt
 
 ### 2. Configure HuggingFace
 
-The ISSAI/SpeakingFaces dataset is gated and requires authentication:
+The ISSAI/Speaking_Faces dataset is gated and requires authentication:
 
 ```bash
 # Login to HuggingFace (one-time setup)
@@ -76,7 +76,7 @@ huggingface-cli login
 # Then add to .env:  HF_TOKEN=hf_...
 ```
 
-> **Important:** Also accept the dataset terms at https://huggingface.co/datasets/ISSAI/SpeakingFaces
+> **Important:** Also accept the dataset terms at https://huggingface.co/datasets/ISSAI/Speaking_Faces
 >
 > The HF cache is automatically redirected to `$TAVSE_DATA_ROOT/.hf_cache` via `.env`, keeping it off your home directory.
 
@@ -282,7 +282,7 @@ sbatch scripts/01_ingest_dataset.sh # processing happens on compute node
 huggingface-cli login
 # Or set HF_TOKEN in .env
 ```
-Also ensure you've accepted the dataset terms at https://huggingface.co/datasets/ISSAI/SpeakingFaces.
+Also ensure you've accepted the dataset terms at https://huggingface.co/datasets/ISSAI/Speaking_Faces.
 
 ### Home quota exceeded
 ```bash
