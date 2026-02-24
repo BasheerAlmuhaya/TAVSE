@@ -217,12 +217,20 @@ sbatch scripts/01_ingest_dataset.sh --resume
 - Validation: subjects 101-114 (14 speakers)
 - Test: subjects 115-142 (28 speakers)
 
-### 4. Prepare Noise Corpus
+### 4. Download Noise Corpus (Login Node)
 
-Downloads and resamples the DEMAND noise corpus:
+Download the DEMAND noise corpus from the login node (compute nodes have no internet):
 
 ```bash
-sbatch scripts/02_prepare_noise.sh
+bash scripts/02a_download_noise.sh
+```
+
+### 5. Prepare Noise Corpus (Compute Node)
+
+Extract and resample the downloaded noise files:
+
+```bash
+sbatch scripts/02b_prepare_noise.sh
 ```
 
 If automatic download fails, manually download from [Zenodo](https://zenodo.org/record/1227121) and place the zip in `$TAVSE_DATA_ROOT/staging/`.

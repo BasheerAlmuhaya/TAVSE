@@ -61,17 +61,20 @@ huggingface-cli login
 bash scripts/00_download_data.sh          # all 142 subjects
 bash scripts/00_download_data.sh 1 5      # or a small subset for testing
 
-# 5. Process data on COMPUTE node via SLURM
-sbatch scripts/01_ingest_dataset.sh
-sbatch scripts/02_prepare_noise.sh
+# 5. Download noise corpus on LOGIN node
+bash scripts/02a_download_noise.sh
 
-# 6. Train models
+# 6. Process data on COMPUTE node via SLURM
+sbatch scripts/01_ingest_dataset.sh
+sbatch scripts/02b_prepare_noise.sh
+
+# 7. Train models
 sbatch scripts/03_train.sh audio_only
 sbatch scripts/03_train.sh audio_rgb
 sbatch scripts/03_train.sh audio_thermal
 sbatch scripts/03_train.sh audio_rgb_thermal
 
-# 7. Evaluate
+# 8. Evaluate
 sbatch scripts/04_evaluate.sh audio_only
 sbatch scripts/04_evaluate.sh audio_rgb_thermal
 ```

@@ -1,16 +1,17 @@
 #!/bin/bash
 # ─────────────────────────────────────────────────────────────
-# TAVSE: Noise Corpus Preparation
+# TAVSE: Noise Corpus Processing (Compute Node via sbatch)
 #
-# Downloads the DEMAND noise corpus, resamples to 16kHz, and
-# stores for on-the-fly noise mixing during training.
+# Extracts and resamples the pre-downloaded DEMAND noise corpus.
+# Run the download step FIRST on the login node:
+#   bash scripts/02a_download_noise.sh
 #
 # Usage:
-#   sbatch scripts/02_prepare_noise.sh
+#   sbatch scripts/02b_prepare_noise.sh
 # ─────────────────────────────────────────────────────────────
 #
 # ── SLURM directives (MUST appear before any executable line) ─
-# Override from command line:  sbatch --partition=short scripts/02_prepare_noise.sh
+# Override from command line:  sbatch --partition=short scripts/02b_prepare_noise.sh
 #SBATCH --job-name=tavse-noise
 #SBATCH --partition=nodes
 #SBATCH --time=01:00:00
@@ -39,6 +40,7 @@ set -euo pipefail
 SCRATCH_BASE="${TAVSE_DATA_ROOT:?Set TAVSE_DATA_ROOT in .env}"
 NOISE_DIR="${SCRATCH_BASE}/processed/noise"
 STAGING_DIR="${SCRATCH_BASE}/staging"
+DEMAND_ZIP="${STAGING_DIR}/demand.zip"
 
 mkdir -p "${NOISE_DIR}" "${STAGING_DIR}"
 
@@ -57,44 +59,48 @@ conda activate "${TAVSE_CONDA_ENV:-tavse}"
 
 echo ""
 echo "=================================================="
-echo "TAVSE Noise Corpus Preparation"
-echo "  Source: DEMAND dataset"
+echo "TAVSE Noise Corpus Processing"
+echo "  Source: ${DEMAND_ZIP}"
 echo "  Output: ${NOISE_DIR}/"
 echo "  Target SR: 16000 Hz"
 echo "=================================================="
 echo ""
 
-# ── Download DEMAND noise corpus ─────────────────────────────
-# DEMAND (Diverse Environments Multichannel Acoustic Noise Database)
-# Each noise type directory contains ch01.wav (mono channel)
-DEMAND_URL="https://zenodo.org/record/1227121/files/demand.zip"
-DEMAND_ZIP=${STAGING_DIR}/demand.zip
+# ── Check if already processed ────────────────────────────────
+if [ -n "$(ls -A ${NOISE_DIR} 2>/dev/null)" ]; then
+    echo "Noise directory already contains files. Skipping processing."
+    echo "Files: $(ls ${NOISE_DIR}/*.wav 2>/dev/null | wc -l) WAV files"
+    echo "Size:  $(du -sh ${NOISE_DIR}/ 2>/dev/null | cut -f1)"
+    echo ""
+    echo "To reprocess, remove ${NOISE_DIR}/ and re-run."
+    exit 0
+fi
 
-if [ ! -f "${DEMAND_ZIP}" ] && [ -z "$(ls -A ${NOISE_DIR} 2>/dev/null)" ]; then
-    echo "Downloading DEMAND noise corpus..."
-    wget -q --show-progress -O ${DEMAND_ZIP} ${DEMAND_URL} || {
-        echo "[INFO] Auto-download failed. Please download DEMAND manually:"
-        echo "  1. Go to: https://zenodo.org/record/1227121"
-        echo "  2. Download demand.zip"
-        echo "  3. Place it in: ${STAGING_DIR}/"
-        echo "  4. Re-run this script"
-        echo ""
-        echo "Alternative: manually place WAV files in ${NOISE_DIR}/"
-        echo "  - Any 16kHz mono WAV files will be used as noise sources"
-        echo "  - Longer files (>30s) are better for random cropping"
-        exit 1
-    }
+# ── Verify the zip exists and is valid ────────────────────────
+if [ ! -f "${DEMAND_ZIP}" ]; then
+    echo "ERROR: ${DEMAND_ZIP} not found."
+    echo ""
+    echo "You must download the DEMAND corpus first on the login node:"
+    echo "  bash scripts/02a_download_noise.sh"
+    exit 1
+fi
+
+if [ ! -s "${DEMAND_ZIP}" ]; then
+    echo "ERROR: ${DEMAND_ZIP} is empty (0 bytes)."
+    echo "Delete it and re-download on the login node:"
+    echo "  rm -f ${DEMAND_ZIP}"
+    echo "  bash scripts/02a_download_noise.sh"
+    exit 1
 fi
 
 # ── Extract and resample ─────────────────────────────────────
-if [ -f "${DEMAND_ZIP}" ]; then
-    echo "Extracting DEMAND corpus..."
-    DEMAND_EXTRACT=${STAGING_DIR}/demand
-    mkdir -p ${DEMAND_EXTRACT}
-    unzip -qo ${DEMAND_ZIP} -d ${DEMAND_EXTRACT}
+echo "Extracting DEMAND corpus..."
+DEMAND_EXTRACT=${STAGING_DIR}/demand
+mkdir -p ${DEMAND_EXTRACT}
+unzip -qo ${DEMAND_ZIP} -d ${DEMAND_EXTRACT}
 
-    echo "Resampling noise files to 16kHz..."
-    python3 -c "
+echo "Resampling noise files to 16kHz..."
+python3 -c "
 import os
 import torchaudio
 from pathlib import Path
@@ -131,10 +137,9 @@ for wav_path in tqdm(wav_files, desc='Resampling'):
 print(f'\nResampled {count} noise files to {dst_dir}/')
 "
 
-    # Cleanup
-    echo "Cleaning up staging..."
-    rm -rf ${DEMAND_ZIP} ${STAGING_DIR}/demand
-fi
+# Cleanup
+echo "Cleaning up staging..."
+rm -rf ${DEMAND_ZIP} ${STAGING_DIR}/demand
 
 # ── Summary ───────────────────────────────────────────────────
 echo ""
