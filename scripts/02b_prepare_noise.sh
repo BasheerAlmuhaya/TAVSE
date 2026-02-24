@@ -2,7 +2,9 @@
 # ─────────────────────────────────────────────────────────────
 # TAVSE: Noise Corpus Processing (Compute Node via sbatch)
 #
-# Extracts and resamples the pre-downloaded DEMAND noise corpus.
+# Extracts the pre-downloaded DEMAND noise corpus zip files
+# and prepares mono 16kHz WAV files for on-the-fly mixing.
+#
 # Run the download step FIRST on the login node:
 #   bash scripts/02a_download_noise.sh
 #
@@ -39,10 +41,9 @@ set -euo pipefail
 
 SCRATCH_BASE="${TAVSE_DATA_ROOT:?Set TAVSE_DATA_ROOT in .env}"
 NOISE_DIR="${SCRATCH_BASE}/processed/noise"
-STAGING_DIR="${SCRATCH_BASE}/staging"
-DEMAND_ZIP="${STAGING_DIR}/demand.zip"
+STAGING_DIR="${SCRATCH_BASE}/staging/demand"
 
-mkdir -p "${NOISE_DIR}" "${STAGING_DIR}"
+mkdir -p "${NOISE_DIR}"
 
 # ── Storage check ─────────────────────────────────────────────
 echo "=== Storage Check ==="
@@ -60,7 +61,7 @@ conda activate "${TAVSE_CONDA_ENV:-tavse}"
 echo ""
 echo "=================================================="
 echo "TAVSE Noise Corpus Processing"
-echo "  Source: ${DEMAND_ZIP}"
+echo "  Source: ${STAGING_DIR}/"
 echo "  Output: ${NOISE_DIR}/"
 echo "  Target SR: 16000 Hz"
 echo "=================================================="
@@ -76,70 +77,103 @@ if [ -n "$(ls -A ${NOISE_DIR} 2>/dev/null)" ]; then
     exit 0
 fi
 
-# ── Verify the zip exists and is valid ────────────────────────
-if [ ! -f "${DEMAND_ZIP}" ]; then
-    echo "ERROR: ${DEMAND_ZIP} not found."
+# ── Verify staging zips exist ─────────────────────────────────
+ZIP_COUNT=$(ls "${STAGING_DIR}"/*.zip 2>/dev/null | wc -l)
+if [ "${ZIP_COUNT}" -eq 0 ]; then
+    echo "ERROR: No zip files found in ${STAGING_DIR}/"
     echo ""
     echo "You must download the DEMAND corpus first on the login node:"
     echo "  bash scripts/02a_download_noise.sh"
     exit 1
 fi
+echo "Found ${ZIP_COUNT} noise zip files in staging."
 
-if [ ! -s "${DEMAND_ZIP}" ]; then
-    echo "ERROR: ${DEMAND_ZIP} is empty (0 bytes)."
-    echo "Delete it and re-download on the login node:"
-    echo "  rm -f ${DEMAND_ZIP}"
-    echo "  bash scripts/02a_download_noise.sh"
-    exit 1
-fi
+# ── Extract and process ──────────────────────────────────────
+TEMP_EXTRACT="${SCRATCH_BASE}/staging/demand_extract"
+mkdir -p "${TEMP_EXTRACT}"
 
-# ── Extract and resample ─────────────────────────────────────
-echo "Extracting DEMAND corpus..."
-DEMAND_EXTRACT=${STAGING_DIR}/demand
-mkdir -p ${DEMAND_EXTRACT}
-unzip -qo ${DEMAND_ZIP} -d ${DEMAND_EXTRACT}
-
-echo "Resampling noise files to 16kHz..."
+echo "Extracting and processing noise files..."
 python3 -c "
 import os
 import torchaudio
 from pathlib import Path
 from tqdm import tqdm
+import zipfile
 
-src_dir = Path('${DEMAND_EXTRACT}')
+staging_dir = Path('${STAGING_DIR}')
+extract_dir = Path('${TEMP_EXTRACT}')
 dst_dir = Path('${NOISE_DIR}')
 target_sr = 16000
 count = 0
+errors = 0
 
-# Find all WAV files (DEMAND stores as ch01.wav in subfolders)
-wav_files = list(src_dir.rglob('*.wav'))
-print(f'Found {len(wav_files)} WAV files')
+# Process each zip file
+zip_files = sorted(staging_dir.glob('*.zip'))
+print(f'Processing {len(zip_files)} noise zip files...')
+print()
 
-for wav_path in tqdm(wav_files, desc='Resampling'):
+for zf_path in zip_files:
+    noise_type = zf_path.stem  # e.g. DKITCHEN_16k or SCAFE_48k
+    needs_resample = '48k' in noise_type
+    base_name = noise_type.replace('_16k', '').replace('_48k', '')
+
+    print(f'  {noise_type}...')
+
+    # Extract
     try:
-        waveform, sr = torchaudio.load(str(wav_path))
-        # Take first channel only (mono)
-        waveform = waveform[0:1]
+        with zipfile.ZipFile(str(zf_path), 'r') as zf:
+            zf.extractall(str(extract_dir))
+    except zipfile.BadZipFile:
+        print(f'    [ERROR] Bad zip file: {zf_path.name}')
+        errors += 1
+        continue
 
-        if sr != target_sr:
-            resampler = torchaudio.transforms.Resample(sr, target_sr)
-            waveform = resampler(waveform)
+    # Find extracted WAV files for this noise type
+    # DEMAND stores multi-channel WAVs as ch01.wav .. ch16.wav in subfolders
+    wav_files = list(extract_dir.rglob('*.wav'))
+    if not wav_files:
+        print(f'    [WARN] No WAV files found')
+        continue
 
-        # Name: noiseType_channel.wav
-        parent = wav_path.parent.name
-        out_name = f'{parent}_{wav_path.stem}.wav'
-        out_path = dst_dir / out_name
-        torchaudio.save(str(out_path), waveform, target_sr)
-        count += 1
-    except Exception as e:
-        print(f'  [WARN] Skipping {wav_path}: {e}')
+    for wav_path in wav_files:
+        try:
+            waveform, sr = torchaudio.load(str(wav_path))
+            # Take first channel only (mono)
+            waveform = waveform[0:1]
 
-print(f'\nResampled {count} noise files to {dst_dir}/')
+            if sr != target_sr:
+                resampler = torchaudio.transforms.Resample(sr, target_sr)
+                waveform = resampler(waveform)
+
+            # Name: NOISEENV_channel.wav  (e.g. DKITCHEN_ch01.wav)
+            parent = wav_path.parent.name
+            out_name = f'{parent}_{wav_path.stem}.wav'
+            out_path = dst_dir / out_name
+            torchaudio.save(str(out_path), waveform, target_sr)
+            count += 1
+        except Exception as e:
+            print(f'    [WARN] Skipping {wav_path.name}: {e}')
+            errors += 1
+
+    # Clean up extracted files for this zip
+    import shutil
+    for item in extract_dir.iterdir():
+        if item.is_dir():
+            shutil.rmtree(item)
+        else:
+            item.unlink()
+
+print(f'')
+print(f'Processed {count} noise files to {dst_dir}/')
+if errors > 0:
+    print(f'Warnings/errors: {errors}')
 "
 
 # Cleanup
+echo ""
 echo "Cleaning up staging..."
-rm -rf ${DEMAND_ZIP} ${STAGING_DIR}/demand
+rm -rf "${TEMP_EXTRACT}"
+rm -rf "${STAGING_DIR}"
 
 # ── Summary ───────────────────────────────────────────────────
 echo ""

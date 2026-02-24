@@ -4,8 +4,12 @@
 #
 # HPC compute nodes typically have NO internet access.
 # Run this script on the LOGIN node to pre-download the
-# DEMAND noise corpus, then run the processing step
-# (02b_prepare_noise.sh) via sbatch.
+# DEMAND noise corpus from Zenodo, then run the processing
+# step (02b_prepare_noise.sh) via sbatch.
+#
+# The DEMAND dataset is stored as individual per-noise-type
+# zip files on Zenodo (there is no single demand.zip).
+# We download the 16kHz versions directly (no resampling needed).
 #
 # Usage:
 #   bash scripts/02a_download_noise.sh
@@ -31,24 +35,56 @@ fi
 
 # ── Paths ─────────────────────────────────────────────────────
 SCRATCH_BASE="${TAVSE_DATA_ROOT:?Set TAVSE_DATA_ROOT in .env}"
-STAGING_DIR="${SCRATCH_BASE}/staging"
-DEMAND_URL="https://zenodo.org/record/1227121/files/demand.zip"
-DEMAND_ZIP="${STAGING_DIR}/demand.zip"
+STAGING_DIR="${SCRATCH_BASE}/staging/demand"
+ZENODO_RECORD="1227121"
+ZENODO_API="https://zenodo.org/api/records/${ZENODO_RECORD}/files"
 
 mkdir -p "${STAGING_DIR}"
+
+# ── DEMAND noise types ────────────────────────────────────────
+# 18 noise environments from DEMAND corpus on Zenodo.
+# 17 have native 16kHz versions; SCAFE only has 48kHz.
+NOISE_FILES=(
+    DKITCHEN_16k.zip
+    DLIVING_16k.zip
+    DWASHING_16k.zip
+    NFIELD_16k.zip
+    NPARK_16k.zip
+    NRIVER_16k.zip
+    OOFFICE_16k.zip
+    OHALLWAY_16k.zip
+    OMEETING_16k.zip
+    PCAFETER_16k.zip
+    PRESTO_16k.zip
+    PSTATION_16k.zip
+    SCAFE_48k.zip
+    SPSQUARE_16k.zip
+    STRAFFIC_16k.zip
+    TBUS_16k.zip
+    TCAR_16k.zip
+    TMETRO_16k.zip
+)
+TOTAL_FILES=${#NOISE_FILES[@]}
 
 # ── Check mode ────────────────────────────────────────────────
 if [ "${1:-}" = "--check" ]; then
     echo "=== DEMAND Noise Download Status ==="
-    if [ -f "${DEMAND_ZIP}" ] && [ -s "${DEMAND_ZIP}" ]; then
-        echo "  Status:   Downloaded"
-        echo "  File:     ${DEMAND_ZIP}"
-        echo "  Size:     $(du -h "${DEMAND_ZIP}" | cut -f1)"
-    elif [ -f "${DEMAND_ZIP}" ]; then
-        echo "  Status:   CORRUPT (0-byte file)"
-        echo "  Action:   Re-run this script to re-download"
-    else
-        echo "  Status:   Not downloaded"
+    downloaded=0
+    missing=0
+    for f in "${NOISE_FILES[@]}"; do
+        if [ -f "${STAGING_DIR}/${f}" ] && [ -s "${STAGING_DIR}/${f}" ]; then
+            downloaded=$((downloaded + 1))
+        else
+            missing=$((missing + 1))
+            echo "  Missing: ${f}"
+        fi
+    done
+    echo ""
+    echo "  Downloaded: ${downloaded}/${TOTAL_FILES}"
+    echo "  Missing:    ${missing}/${TOTAL_FILES}"
+    echo "  Location:   ${STAGING_DIR}/"
+    if [ "${downloaded}" -gt 0 ]; then
+        echo "  Disk usage: $(du -sh "${STAGING_DIR}/" 2>/dev/null | cut -f1)"
     fi
     echo "====================================="
     exit 0
@@ -65,63 +101,71 @@ if ! curl -sI --connect-timeout 10 https://zenodo.org >/dev/null 2>&1; then
 fi
 echo "  OK — zenodo.org reachable"
 
-# ── Clean up any corrupt file from previous attempt ───────────
-if [ -f "${DEMAND_ZIP}" ] && [ ! -s "${DEMAND_ZIP}" ]; then
-    echo "[WARN] Removing empty/corrupt ${DEMAND_ZIP} from previous attempt"
-    rm -f "${DEMAND_ZIP}"
-fi
-
 # ── Download ──────────────────────────────────────────────────
 echo ""
 echo "=================================================="
-echo "TAVSE Noise Corpus Download"
-echo "  Source:  DEMAND (Zenodo)"
-echo "  Output:  ${DEMAND_ZIP}"
+echo "TAVSE DEMAND Noise Corpus Download"
+echo "  Source:  Zenodo record ${ZENODO_RECORD}"
+echo "  Files:   ${TOTAL_FILES} noise environment zips (16kHz)"
+echo "  Output:  ${STAGING_DIR}/"
 echo "=================================================="
 echo ""
 
-if [ -f "${DEMAND_ZIP}" ] && [ -s "${DEMAND_ZIP}" ]; then
-    echo "[Skip] DEMAND corpus already downloaded"
-    echo "  File: ${DEMAND_ZIP}"
-    echo "  Size: $(du -h "${DEMAND_ZIP}" | cut -f1)"
-else
-    echo "Downloading DEMAND noise corpus (~1.6 GB)..."
-    wget --progress=bar:force --timeout=120 --tries=5 \
-         -O "${DEMAND_ZIP}" "${DEMAND_URL}" || {
-        rm -f "${DEMAND_ZIP}"
-        echo ""
-        echo "[ERROR] Download failed."
-        echo "  You can manually download from: ${DEMAND_URL}"
-        echo "  Place the file at: ${DEMAND_ZIP}"
-        exit 1
-    }
+FAILED=0
+SKIPPED=0
+DOWNLOADED=0
 
-    # Verify downloaded file
-    if [ ! -s "${DEMAND_ZIP}" ]; then
-        rm -f "${DEMAND_ZIP}"
-        echo "[ERROR] Downloaded file is empty. Network issue or invalid URL."
-        exit 1
+for zip_file in "${NOISE_FILES[@]}"; do
+    zip_path="${STAGING_DIR}/${zip_file}"
+    download_url="${ZENODO_API}/${zip_file}/content"
+
+    # Skip if already downloaded
+    if [ -f "${zip_path}" ] && [ -s "${zip_path}" ]; then
+        echo "[Skip] ${zip_file}: already downloaded"
+        SKIPPED=$((SKIPPED + 1))
+        continue
     fi
-fi
 
-# ── Verify zip integrity ─────────────────────────────────────
-echo ""
-echo "Verifying zip integrity..."
-if unzip -tq "${DEMAND_ZIP}" >/dev/null 2>&1; then
-    echo "  OK — zip file is valid"
-else
-    echo "[ERROR] Zip file is corrupt. Removing and please re-download."
-    rm -f "${DEMAND_ZIP}"
-    exit 1
-fi
+    # Remove any corrupt/empty file from previous attempt
+    if [ -f "${zip_path}" ] && [ ! -s "${zip_path}" ]; then
+        rm -f "${zip_path}"
+    fi
+
+    echo "[Download] ${zip_file} ..."
+    if wget --progress=bar:force --timeout=120 --tries=3 \
+            -O "${zip_path}" "${download_url}" 2>&1; then
+        # Verify non-empty
+        if [ -s "${zip_path}" ]; then
+            DOWNLOADED=$((DOWNLOADED + 1))
+        else
+            echo "  [WARN] Downloaded file is empty, removing"
+            rm -f "${zip_path}"
+            FAILED=$((FAILED + 1))
+        fi
+    else
+        rm -f "${zip_path}"
+        echo "  [FAILED] ${zip_file}"
+        FAILED=$((FAILED + 1))
+    fi
+done
 
 # ── Summary ───────────────────────────────────────────────────
 echo ""
 echo "=== Download Summary ==="
-echo "  File:      ${DEMAND_ZIP}"
-echo "  Size:      $(du -h "${DEMAND_ZIP}" | cut -f1)"
-echo "  Status:    OK"
+echo "  Downloaded: ${DOWNLOADED}"
+echo "  Skipped:    ${SKIPPED} (already present)"
+echo "  Failed:     ${FAILED}"
+echo "  Location:   ${STAGING_DIR}/"
+echo "  Disk usage: $(du -sh "${STAGING_DIR}/" 2>/dev/null | cut -f1)"
 echo "========================"
+
+if [ ${FAILED} -gt 0 ]; then
+    echo ""
+    echo "WARNING: ${FAILED} files failed to download."
+    echo "Re-run this script to retry failed downloads."
+    exit 1
+fi
+
 echo ""
 echo "Download complete! Now submit the noise processing job:"
 echo "  sbatch scripts/02b_prepare_noise.sh"
