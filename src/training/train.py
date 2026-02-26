@@ -342,6 +342,22 @@ def main():
     gpu_opts = configure_gpu()
     print(f"Device: {device}")
 
+    # ── GPU memory health check ───────────────────────────────────
+    if device.type == "cuda":
+        free_mem, total_mem = torch.cuda.mem_get_info(0)
+        free_gb = free_mem / 1e9
+        total_gb = total_mem / 1e9
+        used_pct = (1 - free_mem / total_mem) * 100
+        print(f"\n=== GPU Memory Check ===")
+        print(f"  Free:  {free_gb:.1f} GB / {total_gb:.1f} GB ({used_pct:.0f}% used)")
+        if used_pct > 10:
+            print(f"  WARNING: GPU already has {used_pct:.0f}% memory in use!")
+            print(f"  A rogue process may be occupying this GPU.")
+            print(f"  Run 'nvidia-smi' on the compute node to check.")
+            print(f"  Consider: scancel other jobs, contact HPC admins,")
+            print(f"  or resubmit with '#SBATCH --exclusive' in your script.")
+        print(f"========================\n")
+
     # Determine mixed-precision dtype (BF16 on Ampere+, FP16 otherwise)
     amp_dtype = torch.bfloat16 if gpu_opts["bf16"] else torch.float16
 

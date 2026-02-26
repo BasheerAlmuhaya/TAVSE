@@ -105,21 +105,32 @@ class VisualEncoder(nn.Module):
         x = x.flatten(1)  # (B*N, 512)
         return x
 
-    def forward(self, frames: torch.Tensor) -> torch.Tensor:
+    def forward(self, frames: torch.Tensor, chunk_size: int = 0) -> torch.Tensor:
         """
         Full visual encoding pipeline.
 
         Args:
             frames: (B, N, C, H, W) — N mouth ROI frames
+            chunk_size: If > 0, process frames in chunks to save GPU memory.
+                        Recommended: 32-64 for large batch*N products.
 
         Returns:
             features: (B, T_audio, feat_dim) — temporally upsampled
         """
         B, N, C, H, W = frames.shape
 
-        # ── Spatial: process all frames at once ───────────────────
-        x = frames.reshape(B * N, C, H, W)
-        x = self._extract_spatial_features(x)  # (B*N, 512)
+        # ── Spatial: process frames (optionally in chunks) ────────
+        if chunk_size > 0 and B * N > chunk_size:
+            # Chunk processing to reduce peak GPU memory
+            all_frames = frames.reshape(B * N, C, H, W)
+            feats = []
+            for i in range(0, B * N, chunk_size):
+                chunk = all_frames[i:i + chunk_size]
+                feats.append(self._extract_spatial_features(chunk))
+            x = torch.cat(feats, dim=0)  # (B*N, 512)
+        else:
+            x = frames.reshape(B * N, C, H, W)
+            x = self._extract_spatial_features(x)  # (B*N, 512)
         x = x.reshape(B, N, -1)                # (B, N, 512)
 
         # ── Temporal: BiGRU ───────────────────────────────────────

@@ -24,6 +24,7 @@
 #SBATCH --job-name=tavse-train
 #SBATCH --partition=gpu
 #SBATCH --gres=gpu:1
+#SBATCH --exclusive
 #SBATCH --time=48:00:00
 #SBATCH --mem=64G
 #SBATCH --cpus-per-task=8
@@ -83,8 +84,26 @@ echo "====================="
 # ── GPU info ──────────────────────────────────────────────────
 echo ""
 echo "=== GPU Info ==="
-nvidia-smi --query-gpu=name,memory.total,memory.free,compute_cap --format=csv,noheader 2>/dev/null || echo "No GPU detected (will use CPU)"
+nvidia-smi --query-gpu=name,memory.total,memory.free,memory.used,compute_cap --format=csv,noheader 2>/dev/null || echo "No GPU detected (will use CPU)"
 echo "================"
+
+# ── GPU health check: verify GPU has enough free memory ───────
+GPU_FREE_MIB=$(nvidia-smi --query-gpu=memory.free --format=csv,noheader,nounits -i ${CUDA_VISIBLE_DEVICES:-0} 2>/dev/null | head -1 | tr -d ' ')
+GPU_TOTAL_MIB=$(nvidia-smi --query-gpu=memory.total --format=csv,noheader,nounits -i ${CUDA_VISIBLE_DEVICES:-0} 2>/dev/null | head -1 | tr -d ' ')
+if [ -n "${GPU_FREE_MIB}" ] && [ -n "${GPU_TOTAL_MIB}" ]; then
+    GPU_USED_PCT=$(( (GPU_TOTAL_MIB - GPU_FREE_MIB) * 100 / GPU_TOTAL_MIB ))
+    echo "GPU memory: ${GPU_FREE_MIB} MiB free / ${GPU_TOTAL_MIB} MiB total (${GPU_USED_PCT}% used)"
+    if [ "${GPU_USED_PCT}" -gt 10 ]; then
+        echo "WARNING: GPU already has ${GPU_USED_PCT}% memory in use!"
+        echo "Checking for stale processes on GPU..."
+        nvidia-smi --query-compute-apps=pid,used_memory,name --format=csv 2>/dev/null || true
+        echo "This may indicate a rogue process. Contact HPC admins if this persists."
+        echo "Attempting to continue, but OOM errors are likely."
+    fi
+fi
+
+# ── CUDA memory allocator optimization ────────────────────────
+export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
 
 cd "${PROJECT_DIR}"
 

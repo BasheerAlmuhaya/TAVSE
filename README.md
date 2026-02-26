@@ -83,6 +83,37 @@ sbatch scripts/04_evaluate.sh audio_rgb_thermal
 
 > **GPU Acceleration:** On Ampere+ GPUs (A100, RTX 30xx, etc.), training automatically enables TF32 and BF16 for ~2x speedup. See `.env.example` for configuration options.
 
+### SLURM Node Selection
+
+On shared HPC clusters, a GPU node may have residual processes from other users consuming GPU memory. If you encounter `CUDA out of memory` errors despite having a large GPU (e.g., A100 80GB), check whether another process is hogging the GPU.
+
+**Diagnose** — inspect the error log for lines like:  
+```
+Process XXXXXX has 72.72 GiB memory in use
+```
+This means a rogue process is occupying most of the GPU. The training script logs GPU memory status at startup to help detect this.
+
+**Solutions:**
+
+```bash
+# Exclude a specific node known to have issues
+sbatch --exclude=gpu01 scripts/03_train.sh audio_rgb_thermal
+
+# Target a specific clean node
+sbatch --nodelist=gpu02 scripts/03_train.sh audio_rgb_thermal
+
+# Request exclusive node access (no GPU sharing)
+sbatch --exclusive scripts/03_train.sh audio_rgb_thermal
+
+# Check available nodes and their state before submitting
+sinfo -p gpu -N --format="%N %P %T %G %m %e"
+```
+
+> **Note:** `nvidia-smi` only works on GPU compute nodes, not on the login node. To inspect GPUs interactively, use:
+> ```bash
+> srun --partition=gpu --gres=gpu:1 --pty bash -c "nvidia-smi"
+> ```
+
 ## Documentation
 
 - **[docs/SETUP.md](docs/SETUP.md)** — Environment setup, storage architecture, data ingestion

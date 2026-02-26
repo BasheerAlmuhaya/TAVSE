@@ -110,14 +110,17 @@ class TAVSEModel(nn.Module):
         bottleneck, skips = self.audio_encoder.encode(noisy_mag)
 
         # ── Visual encoders (conditional) ─────────────────────────
+        # Use chunked processing to reduce peak GPU memory (B*N can be 280+)
+        visual_chunk = 35  # Process 35 frames at a time through ResNet
+
         z_rgb = None
         z_thr = None
 
         if self.rgb_encoder is not None and rgb_frames is not None:
-            z_rgb = self.rgb_encoder(rgb_frames)  # (B, T_audio, D)
+            z_rgb = self.rgb_encoder(rgb_frames, chunk_size=visual_chunk)  # (B, T_audio, D)
 
         if self.thr_encoder is not None and thr_frames is not None:
-            z_thr = self.thr_encoder(thr_frames)  # (B, T_audio, D)
+            z_thr = self.thr_encoder(thr_frames, chunk_size=visual_chunk)  # (B, T_audio, D)
 
         # ── Fusion ────────────────────────────────────────────────
         fused_bottleneck = self.fusion(bottleneck, z_rgb, z_thr)
