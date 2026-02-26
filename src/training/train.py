@@ -61,7 +61,7 @@ def configure_gpu() -> Dict[str, bool]:
         return opts
 
     gpu_name = torch.cuda.get_device_name(0)
-    gpu_mem = torch.cuda.get_device_properties(0).total_mem / 1e9
+    gpu_mem = torch.cuda.get_device_properties(0).total_memory / 1e9
     compute_cap = torch.cuda.get_device_capability(0)
     opts["gpu_name"] = gpu_name
     opts["gpu_mem_gb"] = round(gpu_mem, 1)

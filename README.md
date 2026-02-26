@@ -76,6 +76,8 @@ sbatch scripts/03_train.sh audio_rgb_thermal
 
 # 8. Evaluate
 sbatch scripts/04_evaluate.sh audio_only
+sbatch scripts/04_evaluate.sh audio_rgb
+sbatch scripts/04_evaluate.sh audio_thermal
 sbatch scripts/04_evaluate.sh audio_rgb_thermal
 ```
 

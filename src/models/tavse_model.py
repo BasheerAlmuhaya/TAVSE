@@ -169,6 +169,8 @@ class TAVSEModel(nn.Module):
     def from_checkpoint(cls, checkpoint_path: str, cfg: TAVSEConfig) -> "TAVSEModel":
         """Load model from checkpoint."""
         model = cls(cfg)
-        ckpt = torch.load(checkpoint_path, map_location="cpu", weights_only=True)
+        # weights_only=False because our training checkpoints contain numpy
+        # objects (metrics, dtype). These are our own trusted checkpoints.
+        ckpt = torch.load(checkpoint_path, map_location="cpu", weights_only=False)
         model.load_state_dict(ckpt["model_state_dict"])
         return model
