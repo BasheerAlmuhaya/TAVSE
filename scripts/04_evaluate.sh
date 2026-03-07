@@ -54,7 +54,11 @@ CKPT_DIR="${SCRATCH_BASE}/checkpoints/${EXPERIMENT}"
 EVAL_DIR="${CKPT_DIR}/eval"
 
 # Find best checkpoint (highest SI-SNR in filename)
-CHECKPOINT=$(ls -t ${CKPT_DIR}/ckpt_*.pt 2>/dev/null | head -1)
+# Extract SI-SNR value from filename pattern ckpt_epochNNN_sisnrXX.XX.pt and sort descending
+CHECKPOINT=$(for f in ${CKPT_DIR}/ckpt_*.pt; do
+    sisnr=$(echo "$f" | sed 's/.*sisnr\([0-9.]*\)\.pt/\1/')
+    echo "$sisnr $f"
+done 2>/dev/null | sort -rn | head -1 | awk '{print $2}')
 if [ -z "${CHECKPOINT}" ]; then
     CHECKPOINT="${CKPT_DIR}/latest.pt"
 fi
